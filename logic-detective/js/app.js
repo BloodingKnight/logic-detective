@@ -184,6 +184,9 @@
   function defaultSave() {
     return {
       solved: {},
+      // 间隔重复的排期：{ 关卡id: { box: 第几轮, due: 下次该复习的时间戳 } }
+      // 单独存一份而不是塞进 solved，是为了让老存档还能用（solved 里以前是 true）。
+      review: {},
       // 已经介绍过的方法卡。用来决定「新道具介绍」要不要弹，
       // 也决定武器库里哪些是亮的、哪些还锁着。
       seenCards: {},
@@ -199,6 +202,7 @@
       const d = defaultSave();
       return {
         solved: parsed.solved || {},
+        review: parsed.review || {},
         seenCards: parsed.seenCards || {},
         settings: Object.assign(d.settings, parsed.settings || {}),
       };
@@ -216,6 +220,43 @@
   }
 
   let save = loadSave();
+
+  // ============================================================ 间隔重复
+  //
+  // 遗忘是正常的。要记住，就得在「马上要忘」的时候再见一次面。
+  // 这里用的是 Leitner 盒子：答对一次，下次复习推得更远；答错就退回第一格。
+  //
+  // 教学上比这更重要的一点：**复习的时候不给提示**。给提示就成了「认字」，
+  // 而不是「回忆」——只有真正从脑子里拽出来，记忆才会被加固。
+
+  const REVIEW_GAPS = [1, 3, 7, 14, 30]; // 每轮之后隔几天
+  const DAY = 24 * 60 * 60 * 1000;
+  const REVIEW_BATCH = 5; // 一次最多复习几关，别把孩子吓跑
+
+  /** 把某一关排进复习计划（box 从 1 开始） */
+  function scheduleReview(levelId, box) {
+    const b = Math.max(1, Math.min(REVIEW_GAPS.length, box));
+    save.review[levelId] = { box: b, due: Date.now() + REVIEW_GAPS[b - 1] * DAY };
+  }
+
+  /** 复习完之后更新排期：答对升一格，答错退回第一格 */
+  function bumpReview(levelId, gotIt) {
+    const cur = save.review[levelId];
+    scheduleReview(levelId, gotIt ? (cur ? cur.box : 0) + 1 : 1);
+  }
+
+  /** 现在该复习哪些关（到期的），最该复习的排前面 */
+  function dueReviews() {
+    const now = Date.now();
+    return Object.keys(save.review)
+      .filter((id) => L.findLevel(id) && save.review[id].due <= now)
+      .sort((a, b) => save.review[a].due - save.review[b].due);
+  }
+
+  /** 复习队列：点了「复习」之后依次要过的几关 */
+  let reviewQueue = [];
+  /** 这一轮复习有没有用过提示（用过就不算「自己想起来了」） */
+  let reviewUsedHint = false;
 
   // ============================================================ 页面切换
 
@@ -256,8 +297,13 @@
     $("btn-continue").textContent = done === 0 ? "开始侦探之旅 ▶" : "继续侦探之旅 ▶";
     $("btn-continue").disabled = !next;
 
-    $("world-grid").innerHTML = "";
-    for (const w of L.WORLDS) {
+    // 复习按钮：只有真到期了才出现，平时不打扰。
+    // 复习是「快忘的时候再见一面」，所以它按日期自己冒出来，不用孩子记。
+    const due = dueReviews().length;
+    $("btn-review").hidden = due === 0;
+    $("btn-review").textContent = `🔁 复习（${due} 关到时候了）`;
+
+    $("world-grid").innerHTML = "";    for (const w of L.WORLDS) {
       const unlocked = L.isWorldUnlocked(w.id, save.solved);
       const { done: d, total: t } = L.worldProgress(w.id, save.solved);
       const card = document.createElement("button");
@@ -883,7 +929,17 @@
   function showDone(lv, opts) {
     opts = opts || {};
     const firstTime = !save.solved[lv.id];
-    save.solved[lv.id] = true;
+    const wasReview = reviewQueue[0] === lv.id;
+    // solved 里以前存的是 true，现在改存完成时间戳。
+    // 所有地方都是按「真假」用的，所以老存档照样能用。
+    if (firstTime) save.solved[lv.id] = Date.now();
+    if (wasReview) {
+      // 自己想起了 → 升一格（下次更远再见）；靠提示做的 → 退回第一格，明天再来
+      bumpReview(lv.id, !reviewUsedHint);
+      reviewQueue.shift();
+    } else if (firstTime) {
+      scheduleReview(lv.id, 1); // 第一次学会 → 明天该复习
+    }
     persist();
     sfxWin();
     confetti();
@@ -905,12 +961,18 @@
     $("done-xp").textContent = xp;
 
     const next = L.LEVELS[L.LEVELS.indexOf(lv) + 1];
-    $("btn-next").hidden = !next;
-    $("btn-next").textContent = next
-      ? next.world === lv.world
-        ? "下一关 ▶"
-        : "进入下一个档案 ▶"
-      : "全部完成";
+    if (reviewQueue.length) {
+      // 复习模式：下一步是继续复习，而不是往下学新关
+      $("btn-next").hidden = false;
+      $("btn-next").textContent = `继续复习（还剩 ${reviewQueue.length} 关）▶`;
+    } else {
+      $("btn-next").hidden = !next;
+      $("btn-next").textContent = next
+        ? next.world === lv.world
+          ? "下一关 ▶"
+          : "进入下一个档案 ▶"
+        : "全部完成";
+    }
 
     showScreen("screen-done");
   }
@@ -1214,14 +1276,31 @@
       renderLessons();
       showScreen("screen-lessons");
     };
+    $("btn-review").onclick = () => {
+      const due = dueReviews().slice(0, REVIEW_BATCH);
+      if (!due.length) return;
+      sfxClick();
+      reviewQueue = due.slice();
+      reviewUsedHint = false;
+      openLevel(reviewQueue[0]);
+    };
 
     $("btn-undo").onclick = undo;
-    $("btn-hint").onclick = showHint;
+    $("btn-hint").onclick = () => {
+      // 复习时看了提示，说明这次不是「自己想起来」的 —— 排期要退回第一格
+      if (reviewQueue.length) reviewUsedHint = true;
+      showHint();
+    };
     $("btn-reset").onclick = resetLevel;
     $("btn-cancel-pick").onclick = cancelPick;
     $("btn-quiz-reset").onclick = () => startQuiz(quiz.level);
 
     $("btn-next").onclick = () => {
+      // 复习模式：先把队列走完，再回去学新关
+      if (reviewQueue.length) {
+        openLevel(reviewQueue[0]);
+        return;
+      }
       const lv = currentLevel;
       if (!lv) return;
       const next = L.LEVELS[L.LEVELS.indexOf(lv) + 1];

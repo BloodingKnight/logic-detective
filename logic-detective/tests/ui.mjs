@@ -354,7 +354,73 @@ try {
   fail("读存档异常：" + e.message);
 }
 
-console.log("\n--- 6. 全程 JS 报错检查 ---");
+console.log("\n--- 6. 复习模式（间隔重复）---");
+{
+  // 造一个「昨天就该复习了」的存档，重新起一个页面，看复习按钮会不会自己冒出来。
+  // 不能靠改已有页面的 localStorage —— app.js 在**解析时**就把存档读进去了。
+  const DAY = 24 * 60 * 60 * 1000;
+  const target = "intro-q1";
+
+  async function boot(fill) {
+    const d = new JSDOM(html, {
+      runScripts: "dangerously",
+      pretendToBeVisual: true,
+      url: "http://127.0.0.1:4173/",
+      virtualConsole: new VirtualConsole(),
+    });
+    const w = d.window;
+    w.scrollTo = () => {};
+    w.localStorage.setItem("logic-detective-v2", JSON.stringify(fill));
+    for (const f of ["js/logic.js", "js/engine.js", "js/levels.js", "js/app.js"]) {
+      const s = w.document.createElement("script");
+      s.textContent = await readFile(join(GAME, f), "utf8");
+      w.document.body.appendChild(s);
+    }
+    return { w, d: w.document };
+  }
+
+  // 全部通关 + 其中一关昨天到期
+  const allSolved = {};
+  for (const l of LV.LEVELS) allSolved[l.id] = Date.now() - 40 * DAY;
+  const { w, d } = await boot({
+    solved: allSolved,
+    review: { [target]: { box: 2, due: Date.now() - DAY } },
+    seenCards: {},
+    settings: {},
+  });
+  const btnReview = d.getElementById("btn-review");
+  if (!btnReview) fail("首页没有复习按钮");
+  else if (btnReview.hidden) fail("有到期的复习，按钮却没出现");
+  else {
+    ok(`复习按钮出现：「${btnReview.textContent.trim()}」`);
+    if (!btnReview.textContent.includes("1")) fail("按钮没显示到期的关数");
+    btnReview.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
+    if (d.getElementById("screen-level").hidden) fail("点复习没有进入关卡");
+    else ok("点复习能进入该复习的关卡");
+    const raw = JSON.parse(w.localStorage.getItem("logic-detective-v2"));
+    if (!raw.review || !raw.review[target]) fail("复习排期丢了");
+    else ok(`复习排期还在（box=${raw.review[target].box}）`);
+  }
+
+  // 还没到期时，按钮必须藏着 —— 否则会一直打扰孩子
+  const later = await boot({
+    solved: {},
+    review: { [target]: { box: 1, due: Date.now() + 5 * DAY } },
+    seenCards: {},
+    settings: {},
+  });
+  if (!later.d.getElementById("btn-review").hidden)
+    fail("还没到复习时间，按钮却显示出来了");
+  else ok("没到期的复习不会打扰孩子");
+
+  // 从没玩过的新存档，也不该出现复习按钮
+  const blank = await boot({ solved: {}, review: {}, seenCards: {}, settings: {} });
+  if (!blank.d.getElementById("btn-review").hidden)
+    fail("全新存档不该有复习按钮");
+  else ok("全新存档没有复习按钮");
+}
+
+console.log("\n--- 7. 全程 JS 报错检查 ---");
 if (errors.length) fail("运行期间有报错：\n     " + errors.slice(0, 6).join("\n     "));
 else ok("整个流程零 JS 报错");
 

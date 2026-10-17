@@ -271,11 +271,18 @@ console.log("\n=== 4c. 线索必须可满足（否则任何结论都能「推出
     }
     // ★ 线索自相矛盾时，「线索 ⇒ 结论」永远为真 —— 第 2 节的重言式检查会放行。
     //   这一关其实在教假逻辑：结论不是从故事推出来的，是从矛盾里「炸」出来的。
-    if (models === 0)
-      fail(
-        `${lv.id}（${lv.title}）线索自相矛盾 —— 任何结论都能被「推出」：` +
-          all.map((f) => L.show(f)).join(" ; ")
-      );
+    //   例外：lv.paradox 标了名的关卡，**故意**用矛盾线索，结论必须是 ⊥。
+    if (models === 0) {
+      if (!lv.paradox)
+        fail(
+          `${lv.id}（${lv.title}）线索自相矛盾 —— 任何结论都能被「推出」：` +
+            all.map((f) => L.show(f)).join(" ; ")
+        );
+      else if (lv.goalF.k !== "false")
+        fail(`${lv.id} 标了 paradox，但结论不是 ⊥ —— 矛盾线索下证明任何东西都是假的`);
+    } else if (lv.paradox) {
+      fail(`${lv.id} 标了 paradox（要用矛盾线索证 ⊥），可它的线索其实有解`);
+    }
   }
   ok(`${checked} 个命题逻辑关的线索都可满足`);
 }
