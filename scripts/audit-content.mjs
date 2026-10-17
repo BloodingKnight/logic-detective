@@ -34,10 +34,19 @@ console.log("\n=== A. 线索可满足性（命题逻辑关）===");
       if (all.every((g) => L.evaluate(g, env))) models.push(env);
     }
     if (models.length === 0) {
-      bad(
-        `${lv.id}（${lv.title}）**线索自相矛盾** —— 任何结论都能被"推出"，` +
-          `这一关在教假逻辑。线索：${all.map((f) => L.show(f)).join(" ; ")}`
-      );
+      // paradox: true 的关卡是**故意**用矛盾线索，结论必须是 ⊥
+      //（「证明这种设定不可能存在」）。这类关是宝藏，不是 bug。
+      if (lv.paradox) {
+        if (lv.goalF.k !== "false")
+          bad(`${lv.id} 标了 paradox，但结论不是 ⊥ —— 矛盾线索下证明什么都是假的`);
+      } else {
+        bad(
+          `${lv.id}（${lv.title}）**线索自相矛盾** —— 任何结论都能被"推出"，` +
+            `这一关在教假逻辑。线索：${all.map((f) => L.show(f)).join(" ; ")}`
+        );
+      }
+    } else if (lv.paradox) {
+      bad(`${lv.id} 标了 paradox（要用矛盾线索证 ⊥），可它的线索其实有解`);
     } else if (models.length === 1) {
       // 唯一解 —— 最理想
     }
@@ -47,14 +56,23 @@ console.log("\n=== A. 线索可满足性（命题逻辑关）===");
 
 console.log("\n=== B. 结论是否真的需要线索（不能空手证出）===");
 {
+  let drills = 0;
   for (const lv of LV.LEVELS) {
     if (lv.type !== "proof") continue;
-    // 不给任何线索，看结论本身是不是恒真
     if (L.hasEquation(lv.goalF)) continue;
+    // drill: true 的关卡是**故意**用琐碎目标教一个操作（例如「先假设」）。
+    // 目标是重言式才是对的 —— 孩子的注意力应该全在操作上，不在定理上。
+    if (lv.drill) {
+      drills++;
+      if (!L.isTautology(lv.goalF))
+        bad(`${lv.id} 标了 drill（操作练习），但结论不是显而易见的`);
+      continue;
+    }
     if (L.isTautology(lv.goalF)) {
       bad(`${lv.id}（${lv.title}）的结论**空手就能证**（它自己是重言式），线索完全没用上`);
     }
   }
+  console.log(`  （其中 ${drills} 关是标记过的「操作练习」，目标故意是重言式）`);
 }
 
 console.log("\n=== C. 讲解正文提到的符号，是否真的出现在线索/结论里 ===");
