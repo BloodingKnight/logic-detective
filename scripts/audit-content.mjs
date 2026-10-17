@@ -57,6 +57,7 @@ console.log("\n=== A. 线索可满足性（命题逻辑关）===");
 console.log("\n=== B. 结论是否真的需要线索（不能空手证出）===");
 {
   let drills = 0;
+  let theorems = 0;
   for (const lv of LV.LEVELS) {
     if (lv.type !== "proof") continue;
     if (L.hasEquation(lv.goalF)) continue;
@@ -68,11 +69,21 @@ console.log("\n=== B. 结论是否真的需要线索（不能空手证出）==="
         bad(`${lv.id} 标了 drill（操作练习），但结论不是显而易见的`);
       continue;
     }
+    // theorem: true 的关卡是「没有任何线索，从零证一条定理」。
+    // 这种关的结论**必须**是重言式 —— 否则证不出来。
+    if (lv.theorem) {
+      theorems++;
+      if (!L.isTautology(lv.goalF))
+        bad(`${lv.id} 标了 theorem（无前提证定理），但结论不是重言式 —— 根本证不出来`);
+      continue;
+    }
     if (L.isTautology(lv.goalF)) {
       bad(`${lv.id}（${lv.title}）的结论**空手就能证**（它自己是重言式），线索完全没用上`);
     }
   }
-  console.log(`  （其中 ${drills} 关是标记过的「操作练习」，目标故意是重言式）`);
+  console.log(
+    `  （其中 ${drills} 关是标记过的「操作练习」，${theorems} 关是「从零证定理」）`
+  );
 }
 
 console.log("\n=== C. 讲解正文提到的符号，是否真的出现在线索/结论里 ===");
