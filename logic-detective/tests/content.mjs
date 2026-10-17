@@ -254,6 +254,32 @@ console.log("\n=== 4b. 学习路线（课时表）===");
   ok("每一课都有「毕业标准」");
 }
 
+console.log("\n=== 4c. 线索必须可满足（否则任何结论都能「推出」）===");
+{
+  let checked = 0;
+  for (const lv of LV.LEVELS) {
+    if (lv.type !== "proof") continue;
+    const all = lv.givensF.concat(lv.rulesF || []);
+    if (all.some((f) => L.hasEquation(f))) continue;
+    checked++;
+    const names = [...new Set(all.flatMap((f) => [...L.atomsOf(f)]))];
+    let models = 0;
+    for (let m = 0; m < 1 << names.length; m++) {
+      const env = {};
+      names.forEach((n, i) => (env[n] = !!(m & (1 << i))));
+      if (all.every((g) => L.evaluate(g, env))) models++;
+    }
+    // ★ 线索自相矛盾时，「线索 ⇒ 结论」永远为真 —— 第 2 节的重言式检查会放行。
+    //   这一关其实在教假逻辑：结论不是从故事推出来的，是从矛盾里「炸」出来的。
+    if (models === 0)
+      fail(
+        `${lv.id}（${lv.title}）线索自相矛盾 —— 任何结论都能被「推出」：` +
+          all.map((f) => L.show(f)).join(" ; ")
+      );
+  }
+  ok(`${checked} 个命题逻辑关的线索都可满足`);
+}
+
 console.log("\n=== 5. 一致性 ===");
 {
   const known = new Set(E.TACTICS.map((t) => t.id));
