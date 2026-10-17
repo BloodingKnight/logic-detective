@@ -1,0 +1,21 @@
+{
+  // ────────────────────────────────────────────────────────────────
+  // 这个文件是给「Cloudflare Workers」那套流程用的。
+  //
+  // 如果你走的是「Pages」（推荐），这个文件不会被用到 ——
+  // Pages 是在控制台里填「Build command / Build output directory」。
+  //
+  // 为什么 Workers 需要它：Pages 在网页上就能指定输出目录，
+  // 而 Workers 要读一个 wrangler 配置才知道「静态文件在哪个文件夹」。
+  // ────────────────────────────────────────────────────────────────
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "logic-detective",
+  "compatibility_date": "2025-01-01",
+
+  "assets": {
+    // 静态文件的来源：scripts/build-dist.mjs 生成的 dist/
+    "directory": "./dist",
+    // 构建时生成了 dist/404.html，让 Cloudflare 拿它当"找不到页面"
+    "not_found_handling": "404-page"
+  }
+}
