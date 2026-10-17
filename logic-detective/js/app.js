@@ -261,6 +261,101 @@
   /** 这一轮复习有没有用过提示（用过就不算「自己想起来了」） */
   let reviewUsedHint = false;
 
+  // ============================================================ 课程模式
+  //
+  // 一「课」不只是「学新东西」。它是这个顺序：
+  //
+  //   ① 复习前面学过的   ← 每课开头，趁记忆还热，先提取一次
+  //   ② 讲解新内容       ← 讲
+  //   ③ 练习             ← 练
+  //   ④ 小结             ← 总（用自己的话说一遍）
+  //   ⑤ 自己出题         ← 创
+  //
+  // 为什么复习放在**最前面**，而不是学完再练：
+  // 这叫「提取练习」——努力从记忆里拽出来的那一下，比再看一遍有效得多。
+  // 复习放在新课之前，效果最好。
+  //
+  // 关卡组织（世界 / 课时）完全不变，这里只是在它上面加了一条"怎么走"的主线。
+
+  const REVIEW_PER_SESSION = 3;
+
+  /** 正在上的这门课：{ n, learn: [关卡id], phase } */
+  let courseRun = null;
+  /** 下一关要去哪（复习关 or 课程里的下一关），由 showDone 算好给按钮用 */
+  let nextTarget = null;
+
+  /**
+   * 规划第 n 课：先复习哪些、再学哪些。
+   * 复习题从**前面所有课**里挑，优先挑到期的；没到期的按「学得最早」补。
+   */
+  function planSession(n) {
+    const lesson = L.LESSONS[n - 1];
+    if (!lesson) return { review: [], learn: [] };
+    const now = Date.now();
+
+    // 讲解 / 小结 / 出题 不适合当复习题 —— 复习要的是「回忆 + 动手」
+    const cands = L.LESSONS.slice(0, n - 1)
+      .flatMap((x) => x.levels)
+      .map((id) => L.findLevel(id))
+      .filter((lv) => lv && (lv.type === "proof" || lv.type === "quiz"));
+
+    const rank = (lv) => {
+      const rev = save.review[lv.id];
+      const isDue = !!rev && rev.due <= now;
+      // 到期的排最前；其余按学得最早的排（越久没碰越该复习）
+      return [isDue ? 0 : 1, save.solved[lv.id] || 0];
+    };
+    const review = cands
+      .slice()
+      .sort((a, b) => {
+        const ra = rank(a);
+        const rb = rank(b);
+        return ra[0] - rb[0] || ra[1] - rb[1];
+      })
+      .slice(0, REVIEW_PER_SESSION)
+      .map((lv) => lv.id);
+
+    return { review, learn: lesson.levels.slice() };
+  }
+
+  /** 开始上第 n 课：先走复习，复习完了自动接新内容 */
+  function startCourse(n) {
+    const plan = planSession(n);
+    courseRun = { n, learn: plan.learn, reviewTotal: plan.review.length };
+    reviewQueue = plan.review;
+    reviewUsedHint = false;
+    const first = reviewQueue.length ? reviewQueue[0] : plan.learn[0];
+    if (first) openLevel(first);
+  }
+
+  /** 顶部的课程进度条：现在在「复习」还是在「上新课」 */
+  function updateCourseBanner(level) {
+    const el = $("course-banner");
+    if (!el) return;
+    if (!courseRun || !level) {
+      el.hidden = true;
+      return;
+    }
+    const lesson = L.LESSONS[courseRun.n - 1];
+    const isReview = reviewQueue[0] === level.id;
+    el.hidden = false;
+    if (isReview) {
+      const doneN = courseRun.reviewTotal - reviewQueue.length + 1;
+      el.className = "course-banner review";
+      el.innerHTML =
+        `📚 第 ${courseRun.n} 次 · ① <b>先复习</b>　` +
+        `<span class="cb-count">${doneN} / ${courseRun.reviewTotal}</span>`;
+    } else {
+      const i = courseRun.learn.indexOf(level.id);
+      el.className = "course-banner learn";
+      el.innerHTML =
+        `📚 第 ${courseRun.n} 次 · ${lesson ? esc(lesson.title) : ""}　` +
+        (i >= 0
+          ? `<span class="cb-count">${i + 1} / ${courseRun.learn.length}</span>`
+          : "");
+    }
+  }
+
   // ============================================================ 页面切换
 
   const SCREENS = [
@@ -362,6 +457,7 @@
         L.LESSONS[lesson.n - 2].levels.every((id) => save.solved[id]);
 
       const card = document.createElement("div");
+      const plan = planSession(lesson.n);
       card.className =
         "lesson-card" + (allDone ? " done" : "") + (prevDone ? "" : " locked");
       card.dataset.lesson = String(lesson.n);
@@ -369,7 +465,12 @@
         <div class="lc-num">${allDone ? "✓" : lesson.n}</div>
         <div class="lc-main">
           <div class="lc-title">第 ${lesson.n} 次 · ${esc(lesson.title)}</div>
-          <div class="lc-meta">约 ${lesson.minutes} 分钟 · ${levels.length} 关 · 已完成 ${done}/${levels.length}</div>
+          <div class="lc-meta">约 ${lesson.minutes} 分钟 · 已完成 ${done}/${levels.length}</div>
+          <div class="lc-plan">${
+            plan.review.length
+              ? `🔁 先复习 <b>${plan.review.length}</b> 关`
+              : "🔁 第 1 课，不用复习"
+          }　→　📖 本课 <b>${plan.learn.length}</b> 关</div>
           <div class="lc-goal">🎓 <b>毕业标准</b>：${esc(lesson.goal)}</div>
           <div class="progress-bar"><div class="progress-fill" style="width:${
             levels.length ? (done / levels.length) * 100 : 0
@@ -382,7 +483,7 @@
       card.onclick = () => {
         if (!prevDone) return sfxOops();
         sfxClick();
-        openLevel(next.id);
+        startCourse(lesson.n);
       };
       box.appendChild(card);
     });
@@ -473,6 +574,7 @@
     else if (level.type === "summary") startSummary(level);
     else if (level.type === "create") startCreate(level);
     else startProof(level);
+    updateCourseBanner(level);
     showScreen("screen-level");
   }
 
@@ -1173,18 +1275,32 @@
     xp += `　　🏅 全站进度 ${allDone} / ${L.LEVELS.length}`;
     $("done-xp").textContent = xp;
 
-    const next = lv.isCustom ? null : L.LEVELS[L.LEVELS.indexOf(lv) + 1];
-    if (reviewQueue.length) {
-      // 复习模式：下一步是继续复习，而不是往下学新关
-      $("btn-next").hidden = false;
-      $("btn-next").textContent = `继续复习（还剩 ${reviewQueue.length} 关）▶`;
+    // 下一关去哪：复习队列 → 课程里排的新内容 → 普通顺序的下一关
+    nextTarget = null;
+    if (lv.isCustom) {
+      // 自己出的题不参与任何队列
+    } else if (reviewQueue.length) {
+      nextTarget = reviewQueue[0];
+    } else if (courseRun) {
+      const i = courseRun.learn.indexOf(lv.id);
+      // 复习关不在 learn 里 → 复习做完就接本课的第一关新内容
+      nextTarget = i >= 0 ? courseRun.learn[i + 1] || null : courseRun.learn[0] || null;
     } else {
-      $("btn-next").hidden = !next;
-      $("btn-next").textContent = next
-        ? next.world === lv.world
-          ? "下一关 ▶"
-          : "进入下一个档案 ▶"
-        : "全部完成";
+      const nxt = L.LEVELS[L.LEVELS.indexOf(lv) + 1];
+      nextTarget = nxt ? nxt.id : null;
+    }
+
+    $("btn-next").hidden = !nextTarget;
+    if (nextTarget) {
+      const t = L.findLevel(nextTarget);
+      if (reviewQueue.length) {
+        $("btn-next").textContent = `继续复习（还剩 ${reviewQueue.length} 关）▶`;
+      } else if (courseRun) {
+        $("btn-next").textContent = "继续这一课 ▶";
+      } else {
+        $("btn-next").textContent =
+          t && t.world === lv.world ? "下一关 ▶" : "进入下一个档案 ▶";
+      }
     }
 
     showScreen("screen-done");
@@ -1530,18 +1646,17 @@
     };
 
     $("btn-next").onclick = () => {
-      // 复习模式：先把队列走完，再回去学新关
-      if (reviewQueue.length) {
-        openLevel(reviewQueue[0]);
-        return;
-      }
-      const lv = currentLevel;
-      if (!lv) return;
-      const next = lv.isCustom ? null : L.LEVELS[L.LEVELS.indexOf(lv) + 1];
-      if (next) openLevel(next.id);
+      if (!nextTarget) return;
+      const id = nextTarget;
+      nextTarget = null;
+      openLevel(id);
     };
     $("btn-done-back").onclick = () => {
       const lv = currentLevel;
+      // 离开课程模式：下次从「学习路线」重新开始一课
+      courseRun = null;
+      reviewQueue = [];
+      nextTarget = null;
       if (!lv) return;
       currentWorldId = lv.world;
       openWorld(lv.world);

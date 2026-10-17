@@ -514,7 +514,77 @@ console.log("\n--- 6. 复习模式（间隔重复）---");
   else ok("全新存档没有复习按钮");
 }
 
-console.log("\n--- 7. 全程 JS 报错检查 ---");
+console.log("\n--- 7. 课程模式（先复习，再学新内容）---");
+{
+  const DAY = 24 * 60 * 60 * 1000;
+  const click2 = (w, el) =>
+    el.dispatchEvent(new w.MouseEvent("click", { bubbles: true, cancelable: true }));
+
+  // 前 3 课已通关，然后开始第 4 课
+  const solved = {};
+  for (const l of LV.LESSONS.slice(0, 3))
+    for (const id of l.levels) solved[id] = Date.now() - 20 * DAY;
+
+  const d0 = new JSDOM(html, {
+    runScripts: "dangerously",
+    pretendToBeVisual: true,
+    url: "http://127.0.0.1:4173/",
+    virtualConsole: new VirtualConsole(),
+  });
+  const w = d0.window;
+  w.scrollTo = () => {};
+  w.localStorage.setItem(
+    "logic-detective-v2",
+    JSON.stringify({ solved, review: {}, seenCards: {}, settings: {} })
+  );
+  for (const f of ["js/logic.js", "js/engine.js", "js/levels.js", "js/app.js"]) {
+    const s = w.document.createElement("script");
+    s.textContent = await readFile(join(GAME, f), "utf8");
+    w.document.body.appendChild(s);
+  }
+  const d = w.document;
+
+  click2(w, d.getElementById("btn-lessons"));
+  const cards = [...d.querySelectorAll("#lesson-list .lesson-card")];
+  if (cards.length !== LV.LESSONS.length) fail(`学习路线只列出 ${cards.length} 课`);
+  else {
+    if (!cards[0].textContent.includes("不用复习"))
+      fail("第 1 课不该安排复习（前面没有内容）");
+    else ok("第 1 课不安排复习");
+
+    if (!cards[3].textContent.includes("先复习"))
+      fail("第 4 课应该显示「先复习 N 关」：「" + cards[3].textContent.trim() + "」");
+    else ok("第 4 课的卡片上标出了要先复习");
+
+    click2(w, cards[3]);
+    const banner = d.getElementById("course-banner");
+    if (banner.hidden) fail("进入课程后没显示进度条");
+    else if (!banner.textContent.includes("复习"))
+      fail("开始新课应该**先**复习，实际显示：" + banner.textContent.trim());
+    else ok("开始新课时先进入复习：" + banner.textContent.trim());
+
+    // 把实际打开的关卡标题取出来，确认它是**前面课**的内容
+    const VIEWS = {
+      "teach-view": "teach-title",
+      "proof-view": "proof-title",
+      "quiz-view": "quiz-title",
+      "summary-view": "summary-title",
+      "create-view": "create-title",
+    };
+    const shown = Object.keys(VIEWS).find((v) => !d.getElementById(v).hidden);
+    const title = shown
+      ? d.getElementById(VIEWS[shown]).textContent.trim()
+      : "";
+    const earlier = LV.LESSONS.slice(0, 3)
+      .flatMap((l) => l.levels)
+      .map((id) => LV.findLevel(id).title);
+    if (!earlier.includes(title))
+      fail(`先复习时打开的「${title}」不是前面课的内容`);
+    else ok(`复习的确实是前面的关卡：「${title}」`);
+  }
+}
+
+console.log("\n--- 8. 全程 JS 报错检查 ---");
 if (errors.length) fail("运行期间有报错：\n     " + errors.slice(0, 6).join("\n     "));
 else ok("整个流程零 JS 报错");
 
