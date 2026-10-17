@@ -63,8 +63,9 @@ const HARNESS = `
   var target = q.get('level');
   var wantModal = q.get('modal') !== null;
   var wantInv = q.get('inv') !== null;
+  var wantLessons = q.get('lessons') !== null;
   var keepIntro = q.get('intro') === 'show';
-  if (!target && !wantModal && !wantInv) return;
+  if (!target && !wantModal && !wantInv && !wantLessons) return;
   var LD = window.LD;
   var lv = target
     ? LD.LEVELS.filter(function (l) { return l.id === target; })[0]
@@ -82,9 +83,11 @@ const HARNESS = `
     var cards = document.querySelectorAll('.world-card');
     if (!cards.length) return false;
 
-    // 只截武器库 / 设置弹层
+    // 只截武器库 / 设置弹层 / 学习路线
     if (!lv) {
-      var btn = document.getElementById(wantInv ? 'btn-inventory' : 'btn-settings');
+      var btn = document.getElementById(
+        wantLessons ? 'btn-lessons' : wantInv ? 'btn-inventory' : 'btn-settings'
+      );
       if (!btn) return false;
       btn.click();
       return true;
@@ -197,6 +200,7 @@ const SHOTS = [
   { name: "23-create", q: "level=chain-create" },
   { name: "24-explain", q: "level=chain-explain" },
   { name: "25-justify", q: "level=chain-justify" },
+  { name: "26-lessons", q: "lessons=1" },
   { name: "14-teach-symbol", q: "level=intro-t4" },
   { name: "15-card-intro", q: "level=either-l3&intro=show" },
   { name: "16-inventory", q: "inv=1&solve=both-l5" },

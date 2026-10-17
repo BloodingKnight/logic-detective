@@ -1155,6 +1155,42 @@ button { font-family: inherit; cursor: pointer; }
 .lessons-sub { color: var(--ink-soft); font-size: 15px; line-height: 1.8; margin: 0; }
 .lessons-sub b { color: var(--ink); }
 
+.lessons-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  justify-content: center;
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--ink-faint);
+}
+.lessons-legend span { white-space: nowrap; }
+
+/* 一课里各类关卡的顺序：🔁 3 → 📖 1 → ✏️ 5 → … */
+.lc-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 0 8px;
+  font-size: 13px;
+}
+.lc-flow .fl {
+  padding: 2px 8px;
+  border-radius: 7px;
+  background: #f1f5f9;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.lc-flow .fl.review { background: #fef3c7; color: #b45309; }
+.lc-flow .fl.t-teach { background: #e0e7ff; color: #4338ca; }
+.lc-flow .fl.t-quiz { background: #fce7f3; color: #be185d; }
+.lc-flow .fl.t-summary { background: #dcfce7; color: #15803d; }
+.lc-flow .fl.t-explain { background: #fee2e2; color: #b91c1c; }
+.lc-flow .fl.t-justify { background: #e0f2fe; color: #0369a1; }
+.lc-flow .fl.t-create { background: #f3e8ff; color: #7e22ce; }
+.lc-flow .fl-arrow { color: var(--ink-faint); font-size: 11px; }
+
 .lesson-list { display: flex; flex-direction: column; gap: 12px; }
 
 .lesson-card {

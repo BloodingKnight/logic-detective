@@ -642,13 +642,26 @@ console.log("\n--- 7. 课程模式（先复习，再学新内容）---");
   const cards = [...d.querySelectorAll("#lesson-list .lesson-card")];
   if (cards.length !== LV.LESSONS.length) fail(`学习路线只列出 ${cards.length} 课`);
   else {
-    if (!cards[0].textContent.includes("不用复习"))
+    if (cards[0].querySelector(".fl.review"))
       fail("第 1 课不该安排复习（前面没有内容）");
     else ok("第 1 课不安排复习");
 
-    if (!cards[3].textContent.includes("先复习"))
-      fail("第 4 课应该显示「先复习 N 关」：「" + cards[3].textContent.trim() + "」");
-    else ok("第 4 课的卡片上标出了要先复习");
+    const revChip = cards[3].querySelector(".fl.review");
+    if (!revChip) fail("第 4 课的卡片上没标出要复习");
+    else ok(`第 4 课的卡片上标出了要复习：${revChip.textContent.trim()} 关`);
+
+    // 每张卡都要画出「这一课怎么走」的流程（复习 → 讲 → 练 → 测 → …）
+    const noFlow = cards.filter((c) => !c.querySelector(".lc-flow"));
+    if (noFlow.length) fail(`${noFlow.length} 课没显示流程`);
+    else ok("每一课都画出了「这一课怎么走」");
+
+    // 流程里的图标要能对上关卡类型：
+    // 第 5 课「串线索（进阶）」有 练 + 讲解 + 补理由 + 小结 + 出题
+    const f5 = cards[4].querySelector(".lc-flow").textContent;
+    for (const icon of ["✏️", "🕵️", "🧾", "🎓", "🎨"])
+      if (!f5.includes(icon))
+        fail(`第 5 课的流程里没有 ${icon}：「${f5.trim()}」`);
+    ok(`第 5 课的流程：${f5.trim().replace(/\s+/g, " ")}`);
 
     click2(w, cards[3]);
     const banner = d.getElementById("course-banner");

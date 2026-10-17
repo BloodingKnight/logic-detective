@@ -458,6 +458,37 @@
 
       const card = document.createElement("div");
       const plan = planSession(lesson.n);
+
+      // 这一课到底怎么走：把连续同类型的关卡压成一段
+      // （比如「✏️ 练 5」而不是列 5 个关卡名）
+      const ICON = {
+        teach: "📖",
+        proof: "✏️",
+        quiz: "🎬",
+        explain: "🕵️",
+        justify: "🧾",
+        summary: "🎓",
+        create: "🎨",
+      };
+      const runs = [];
+      for (const id of lesson.levels) {
+        const lv = L.findLevel(id);
+        if (!lv) continue;
+        const last = runs[runs.length - 1];
+        if (last && last.type === lv.type) last.n++;
+        else runs.push({ type: lv.type, n: 1 });
+      }
+      const chips = [];
+      if (plan.review.length)
+        chips.push(
+          `<span class="fl review">🔁 ${plan.review.length}</span>`
+        );
+      for (const r of runs)
+        chips.push(
+          `<span class="fl t-${r.type}">${ICON[r.type] || "•"} ${r.n}</span>`
+        );
+      const flow = chips.join('<span class="fl-arrow">→</span>');
+
       card.className =
         "lesson-card" + (allDone ? " done" : "") + (prevDone ? "" : " locked");
       card.dataset.lesson = String(lesson.n);
@@ -466,11 +497,7 @@
         <div class="lc-main">
           <div class="lc-title">第 ${lesson.n} 次 · ${esc(lesson.title)}</div>
           <div class="lc-meta">约 ${lesson.minutes} 分钟 · 已完成 ${done}/${levels.length}</div>
-          <div class="lc-plan">${
-            plan.review.length
-              ? `🔁 先复习 <b>${plan.review.length}</b> 关`
-              : "🔁 第 1 课，不用复习"
-          }　→　📖 本课 <b>${plan.learn.length}</b> 关</div>
+          <div class="lc-flow">${flow}</div>
           <div class="lc-goal">🎓 <b>毕业标准</b>：${esc(lesson.goal)}</div>
           <div class="progress-bar"><div class="progress-fill" style="width:${
             levels.length ? (done / levels.length) * 100 : 0
