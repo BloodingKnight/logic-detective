@@ -854,6 +854,53 @@
         };
       },
     },
+    {
+      id: "iffElim",
+      prio: 4,
+      arity: 1,
+      card: {
+        name: "拆成两个箭头",
+        emoji: "⬌",
+        tone: "blue",
+        tip: "「A ↔ B」其实是两条线索合在一起：A 能推出 B，B 也能推出 A。拆开它们。",
+      },
+      pickPrompt: () => "点一条带 ↔ 的线索",
+      candidates: (g) => g.hyps.filter((h) => h.f.k === "iff"),
+      run: (g, [h], ctx) => {
+        const f1 = imp(h.f.a, h.f.b);
+        const f2 = imp(h.f.b, h.f.a);
+        const a1 = addHyp(g, f1, "derived", ctx);
+        const a2 = addHyp(g, f2, "derived", ctx);
+        return {
+          goals: [g],
+          message:
+            a1 || a2
+              ? `「${show(h.f)}」拆成两个箭头：${show(f1)} 和 ${show(f2)}。`
+              : "这两条箭头已经有了。",
+        };
+      },
+    },
+    {
+      id: "iffIntro",
+      prio: 4,
+      arity: 0,
+      card: {
+        name: "合成双向",
+        emoji: "🪢",
+        tone: "blue",
+        tip: "要证「A ↔ B」，得两个方向都证：先证 A → B，再证 B → A。",
+      },
+      visible: (g) => g.target.k === "iff",
+      run: (g) => ({
+        goals: [
+          { hyps: copyHyps(g), target: imp(g.target.a, g.target.b) },
+          { hyps: copyHyps(g), target: imp(g.target.b, g.target.a) },
+        ],
+        message: `要证「${show(
+          g.target
+        )}」，两个方向都要证：先证「A → B」，再证「B → A」。`,
+      }),
+    },
   ];
 
   const TACTIC_MAP = {};

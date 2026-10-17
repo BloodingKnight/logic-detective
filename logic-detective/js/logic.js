@@ -92,10 +92,17 @@
         return not(substFormula(f.a, name, repl));
       case "and":
       case "or":
-      case "imp": {
+      case "imp":
+      case "iff": {
         const a = substFormula(f.a, name, repl);
         const b = substFormula(f.b, name, repl);
-        return f.k === "and" ? and(a, b) : f.k === "or" ? or(a, b) : imp(a, b);
+        return f.k === "and"
+          ? and(a, b)
+          : f.k === "or"
+          ? or(a, b)
+          : f.k === "imp"
+          ? imp(a, b)
+          : iff(a, b);
       }
       default:
         return f;
@@ -137,6 +144,7 @@
       case "and":
       case "or":
       case "imp":
+      case "iff":
         formulaTermVars(f.a, acc);
         formulaTermVars(f.b, acc);
         break;
@@ -189,6 +197,8 @@
   const and = (a, b) => ({ k: "and", a, b });
   const or = (a, b) => ({ k: "or", a, b });
   const imp = (a, b) => ({ k: "imp", a, b });
+  /** 当且仅当：A ↔ B 就是「A 和 B 同真同假」 */
+  const iff = (a, b) => ({ k: "iff", a, b });
   /** 等式：等号两边各是一个项 */
   const equation = (a, b) => ({ k: "eq", a, b });
 
@@ -205,6 +215,7 @@
       case "and":
       case "or":
       case "imp":
+      case "iff":
         return hasEquation(f.a) || hasEquation(f.b);
       default:
         return false;
@@ -287,8 +298,17 @@
     return s;
   }
 
-  // 公式的优先级
-  const PREC = { imp: 1, or: 2, and: 3, not: 4, atom: 5, false: 5, eq: 6 };
+  // 公式的优先级。↔ 最松 —— 和数学惯例一致，也让「A ↔ B」不会跟别人抢读法。
+  const PREC = {
+    iff: 0,
+    imp: 1,
+    or: 2,
+    and: 3,
+    not: 4,
+    atom: 5,
+    false: 5,
+    eq: 6,
+  };
   const prec = (f) => PREC[f.k] || 0;
 
   function render(f, minPrec, strict) {
@@ -324,6 +344,9 @@
         return orOperand(f.a) + " ∨ " + orOperand(f.b);
       case "imp":
         return impOperand(f.a) + " → " + impOperand(f.b);
+      case "iff":
+        // ↔ 比 → 还松，所以两边只要有 → 或别的复合就会加括号
+        return iffOperand(f.a) + " ↔ " + iffOperand(f.b);
       default:
         return "?";
     }
@@ -336,9 +359,16 @@
 
   /** → 的操作数：只要是复合公式就补括号（含右结合的 A → (B → C)） */
   function impOperand(x) {
-    return x.k === "and" || x.k === "or" || x.k === "imp"
+    return x.k === "and" || x.k === "or" || x.k === "imp" || x.k === "iff"
       ? "(" + show(x) + ")"
       : show(x);
+  }
+
+  /** ↔ 的操作数：只要不是原子/¬/⊥ 就补括号（↔ 是最松的） */
+  function iffOperand(x) {
+    return x.k === "atom" || x.k === "false" || x.k === "not" || x.k === "eq"
+      ? show(x)
+      : "(" + show(x) + ")";
   }
 
   // -------------------------------------------------------------- 指纹
@@ -359,6 +389,9 @@
         return "=(" + termKey(x.a) + "," + termKey(x.b) + ")";
       case "not":
         return "n(" + key(x.a) + ")";
+      case "iff":
+        // 不能用 default 的首字母 —— imp 和 iff 都是 'i'，会撞指纹
+        return "b(" + key(x.a) + "," + key(x.b) + ")";
       default:
         return x.k[0] + "(" + key(x.a) + "," + key(x.b) + ")";
     }
@@ -388,6 +421,12 @@
         i++;
         continue;
       }
+      // 注意顺序：`<->` 必须在 `->` 之前判断（前三个字符是 `<` 不是 `-`）
+      if (src.startsWith("<->", i)) {
+        out.push({ t: "iff" });
+        i += 3;
+        continue;
+      }
       if (src.startsWith("->", i)) {
         out.push({ t: "->" });
         i += 2;
@@ -400,7 +439,14 @@
       }
       // 界面上显示的就是 ∧ ∨ ¬ → ⊥，关卡作者自然会照着写。
       // 解析器必须能原样读回来，否则每写一关都要记一遍 ASCII 对照表。
-      const GLYPH = { "∧": "&", "∨": "|", "¬": "~", "→": "->", "⊥": "false" };
+      const GLYPH = {
+        "∧": "&",
+        "∨": "|",
+        "¬": "~",
+        "→": "->",
+        "↔": "iff",
+        "⊥": "false",
+      };
       if (GLYPH[c]) {
         out.push({ t: GLYPH[c] });
         i++;
@@ -435,6 +481,15 @@
       pos++;
     };
 
+    /** ↔ 最松，其次是 → */
+    function pIff() {
+      const left = pImp();
+      if (at("iff")) {
+        pos++;
+        return iff(left, pIff()); // 右结合
+      }
+      return left;
+    }
     function pImp() {
       const left = pOr();
       if (at("->")) {
@@ -501,7 +556,7 @@
       pos = save;
       if (at("(")) {
         pos++;
-        const f = pImp();
+        const f = pIff();
         eat(")");
         return f;
       }
@@ -551,7 +606,7 @@
       throw new Error(`算式里出现了意外的符号 '${tk.t}'：${src}`);
     }
 
-    const result = pImp();
+    const result = pIff();
     if (pos !== toks.length) throw new Error(`公式后面还有多余的东西：${src}`);
     return result;
   }
@@ -571,6 +626,7 @@
       case "and":
       case "or":
       case "imp":
+      case "iff":
         atomsOf(f.a, acc);
         atomsOf(f.b, acc);
         break;
@@ -595,6 +651,8 @@
         return evaluate(f.a, env) || evaluate(f.b, env);
       case "imp":
         return !evaluate(f.a, env) || evaluate(f.b, env);
+      case "iff":
+        return evaluate(f.a, env) === evaluate(f.b, env);
       default:
         throw new Error("这个公式没法用真值表算：" + show(f));
     }
@@ -675,6 +733,7 @@
     and,
     or,
     imp,
+    iff,
     equation,
     isEquation,
     hasEquation,
