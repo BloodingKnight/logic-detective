@@ -242,6 +242,57 @@ for (const level of LV.LEVELS) {
     continue;
   }
 
+  if (level.type === "justify") {
+    const rows = [...doc.querySelectorAll("#justify-steps .justify-step")];
+    if (rows.length !== level.stepsF.length) {
+      fail(`${level.id} 显示了 ${rows.length} 步，应该有 ${level.stepsF.length} 步`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    // 先空着交一次，确认它会提示「还有 N 步没选」
+    click($("btn-justify-check"));
+    const fb0 = $("justify-feedback");
+    if (fb0.hidden || !fb0.textContent.includes("没选理由")) {
+      fail(`${level.id} 没选理由就提交，没给出「还有几步没选」的提示`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    // 故意把第一步选错，确认它会标红而不是放行
+    const sels = rows.map((r) => r.querySelector("select"));
+    const wrongPick =
+      (level.steps[0].answer + 1) % level.options.length;
+    sels[0].value = String(wrongPick);
+    for (let i = 1; i < sels.length; i++) sels[i].value = String(level.steps[i].answer);
+    click($("btn-justify-check"));
+    const fb1 = $("justify-feedback");
+    if (!fb1.textContent.includes("不对")) {
+      fail(`${level.id} 第一步选错了，却没提示「理由不对」`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    // 全部选对
+    for (let i = 0; i < sels.length; i++) sels[i].value = String(level.steps[i].answer);
+    click($("btn-justify-check"));
+    const fb2 = $("justify-feedback");
+    if (!fb2.classList.contains("good")) {
+      fail(`${level.id} 全部选对却没判过关`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    const fin = [...doc.querySelectorAll("#justify-play button")][0];
+    if (!fin) {
+      fail(`${level.id} 全对之后没有「收工」按钮`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    click(fin);
+    if ($("screen-done").hidden) {
+      fail(`${level.id}（补理由关）没走到完成页`);
+      failedLevels.push(level.id);
+    } else solvedCount++;
+    continue;
+  }
+
   if (level.type === "explain") {
     const rows = [...doc.querySelectorAll("#explain-steps .explain-step")];
     if (rows.length !== level.stepsF.length) {

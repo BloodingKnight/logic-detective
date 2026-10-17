@@ -172,6 +172,35 @@
         <div id="explain-play" class="create-play" hidden></div>
       </div>
 
+      <!-- ---- 补理由关：给每一步配上凭什么 ---- -->
+      <div id="justify-view" hidden>
+        <div class="level-head">
+          <h2 id="justify-title"></h2>
+          <div class="level-tools">
+            <button id="btn-justify-reset" class="tool">🔄 重来</button>
+          </div>
+        </div>
+        <details id="justify-brief" class="case-brief" open>
+          <summary>📁 案情简介</summary>
+          <div id="justify-brief-body" class="markdown"></div>
+        </details>
+
+        <div class="justify-givens">
+          <div class="pane-title">📋 已知</div>
+          <div id="justify-givens-list" class="clue-list"></div>
+        </div>
+
+        <div class="explain-prompt">
+          👇 下面这段证明是<b>对的</b>。但每一步的<b>理由被擦掉了</b> —— 帮它补上。
+        </div>
+        <div id="justify-steps" class="justify-steps"></div>
+        <div id="justify-feedback" class="feedback" hidden></div>
+        <div class="create-actions">
+          <button id="btn-justify-check" class="big-primary">🔍 检查我的理由</button>
+        </div>
+        <div id="justify-play" class="create-play" hidden></div>
+      </div>
+
       <!-- ---- 自己出题 ---- -->
       <div id="create-view" hidden>
         <div class="level-head">

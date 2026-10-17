@@ -578,6 +578,7 @@
       "summary-view",
       "create-view",
       "explain-view",
+      "justify-view",
     ])
       $(v).hidden = true;
     if (level.type === "teach") startTeach(level);
@@ -585,6 +586,7 @@
     else if (level.type === "summary") startSummary(level);
     else if (level.type === "create") startCreate(level);
     else if (level.type === "explain") startExplain(level);
+    else if (level.type === "justify") startJustify(level);
     else startProof(level);
     updateCourseBanner(level);
     showScreen("screen-level");
@@ -906,6 +908,139 @@
       const lv = explainLevel;
       explainLevel = null;
       showDone(lv, { emoji: "🕵️", title: "抓到错误了！" });
+    };
+    play.appendChild(b);
+  }
+
+  // ------------------------------------------------------------ 补理由关
+  //
+  // 前面几关都是「做题」：点卡片，引擎保证每一步有效 —— 孩子不可能写错一步。
+  //
+  // 这一关反过来，考的是**说出理由**：给一段**对的**证明，把每一步的
+  // 「凭什么」擦掉，让他补回来。
+  //
+  // 这是最接近「写形式化证明」的形态 —— 一步一理由，可以被人逐行检查。
+  // 只是把打字换成了选择：不用背语法，也不用担心打错字，
+  // 注意力全在「这一步凭什么」上。
+
+  let justifyLevel = null;
+
+  function startJustify(level) {
+    session = null;
+    quiz = null;
+    teachLevel = null;
+    summaryLevel = null;
+    createLevel = null;
+    explainLevel = null;
+    justifyLevel = level;
+
+    $("justify-view").hidden = false;
+    $("justify-title").textContent = level.title;
+    $("justify-brief-body").innerHTML = mdToHtml(level.intro || "");
+    $("justify-feedback").hidden = true;
+    $("justify-play").hidden = true;
+    $("justify-play").innerHTML = "";
+
+    // 已知条件
+    const gl = $("justify-givens-list");
+    gl.innerHTML = "";
+    if (!level.givensF.length) {
+      gl.innerHTML = '<div class="inv-empty">（这一关不需要已知条件）</div>';
+    } else {
+      level.givensF.forEach((f, i) => {
+        const d = document.createElement("div");
+        d.className = "clue given";
+        d.innerHTML =
+          `<span class="clue-no">${i + 1}</span><span>${fshow(f)}</span>`;
+        gl.appendChild(d);
+      });
+    }
+
+    // 证明的每一步 + 一个理由下拉
+    const box = $("justify-steps");
+    box.innerHTML = "";
+    level.stepsF.forEach((f, i) => {
+      const row = document.createElement("div");
+      row.className = "justify-step";
+      row.dataset.step = String(i);
+      row.innerHTML =
+        `<span class="js-num">${i + 1}</span>` +
+        `<span class="js-claim">${fshow(f)}</span>`;
+      const sel = document.createElement("select");
+      sel.setAttribute("aria-label", `第 ${i + 1} 步的理由`);
+      const blank = document.createElement("option");
+      blank.value = "";
+      blank.textContent = "理由…";
+      sel.appendChild(blank);
+      level.options.forEach((o, k) => {
+        const op = document.createElement("option");
+        op.value = String(k);
+        op.textContent = o;
+        sel.appendChild(op);
+      });
+      row.appendChild(sel);
+      box.appendChild(row);
+    });
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function checkJustify() {
+    const level = justifyLevel;
+    if (!level) return;
+    const rows = [...$("justify-steps").children];
+    let wrong = 0;
+    let blank = 0;
+    rows.forEach((row, i) => {
+      const v = row.querySelector("select").value;
+      row.classList.remove("ok", "no");
+      if (v === "") {
+        blank++;
+        return;
+      }
+      if (Number(v) === level.steps[i].answer) row.classList.add("ok");
+      else {
+        row.classList.add("no");
+        wrong++;
+      }
+    });
+
+    const fb = $("justify-feedback");
+    fb.hidden = false;
+    if (blank) {
+      fb.className = "feedback bad";
+      fb.innerHTML = mdToHtml(
+        `还有 **${blank}** 步没选理由。\n\n**每一步都要说出凭什么** —— 这就是形式化证明跟「我觉得」的区别。`
+      );
+      return;
+    }
+    if (wrong) {
+      sfxOops();
+      fb.className = "feedback bad";
+      fb.innerHTML = mdToHtml(
+        `有 **${wrong}** 步的理由不对（标红的那些）。\n\n想一想：那一步是靠什么推出来的？\n是**题目直接给的**，还是**从前面某一步推出来的**？`
+      );
+      return;
+    }
+
+    sfxWin();
+    fb.className = "feedback good";
+    fb.innerHTML = mdToHtml(
+      `🎉 **全对。**\n\n你刚刚做的，就是**形式化证明**里最核心的动作：\n` +
+        `**每一步都说清楚凭什么。**\n\n` +
+        `以后你看到一段证明，也可以这样一行一行问：\n「这一步凭什么？」——问得出，就是站得住的。\n\n` +
+        (level.conclusion || "")
+    );
+    const play = $("justify-play");
+    play.hidden = false;
+    play.innerHTML = "";
+    const b = document.createElement("button");
+    b.className = "big-primary";
+    b.textContent = "收工 ▶";
+    b.onclick = () => {
+      const lv = justifyLevel;
+      justifyLevel = null;
+      showDone(lv, { emoji: "🧾", title: "理由补全了！" });
     };
     play.appendChild(b);
   }
@@ -1737,6 +1872,13 @@
     };
     $("btn-create-reset").onclick = () => {
       if (createLevel) startCreate(createLevel);
+    };
+    $("btn-justify-check").onclick = () => {
+      sfxClick();
+      checkJustify();
+    };
+    $("btn-justify-reset").onclick = () => {
+      if (justifyLevel) startJustify(justifyLevel);
     };
     $("btn-summary-done").onclick = () => {
       if (!summaryLevel) return;

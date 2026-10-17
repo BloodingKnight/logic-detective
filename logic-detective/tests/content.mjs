@@ -63,11 +63,40 @@ console.log("\n=== 1. 关卡结构 ===");
     seen.add(lv.id);
     if (!LV.WORLD_INDEX.hasOwnProperty(lv.world)) fail(`${lv.id} 的世界不存在`);
     if (
-      !["teach", "quiz", "proof", "summary", "create", "explain"].includes(
-        lv.type
-      )
+      ![
+        "teach",
+        "quiz",
+        "proof",
+        "summary",
+        "create",
+        "explain",
+        "justify",
+      ].includes(lv.type)
     )
       fail(`${lv.id} 的类型 "${lv.type}" 不认识`);
+    if (lv.type === "justify") {
+      if (!lv.stepsF || lv.stepsF.length < 2) fail(`补理由关 ${lv.id} 少于两步`);
+      if (!lv.options || lv.options.length < 3)
+        fail(`补理由关 ${lv.id} 的理由选项太少（至少要 2 个正确答案之外还有干扰项）`);
+      (lv.steps || []).forEach((s, i) => {
+        if (
+          typeof s.answer !== "number" ||
+          s.answer < 0 ||
+          s.answer >= (lv.options || []).length
+        )
+          fail(`补理由关 ${lv.id} 第 ${i + 1} 步的 answer 不合法`);
+      });
+      // 正确答案不能全挤在同一个下标上，否则孩子乱点也能过
+      const answers = new Set((lv.steps || []).map((s) => s.answer));
+      if (answers.size === 1 && (lv.steps || []).length >= 3)
+        fail(`补理由关 ${lv.id} 所有正确答案都在同一个选项上 —— 猜都能猜到`);
+      // 「因为显然成立」这类搪塞理由不允许当答案
+      (lv.steps || []).forEach((s, i) => {
+        const o = (lv.options || [])[s.answer] || "";
+        if (/显然|看起来|都知道/.test(o))
+          fail(`补理由关 ${lv.id} 第 ${i + 1} 步把「${o}」当成了正确答案`);
+      });
+    }
     if (lv.type === "explain") {
       if (!lv.stepsF || lv.stepsF.length < 2) fail(`讲解关 ${lv.id} 少于两步`);
       else if (
