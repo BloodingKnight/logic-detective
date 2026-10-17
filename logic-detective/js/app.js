@@ -626,7 +626,9 @@
    * 后看到介绍（`只差一步` 就是这样漏出去的）。
    */
   function unlockedTactics(level) {
-    const introduced = L.tacticsForLevel(level.id);
+    // 自己出的题是临时合成的，不在关卡表里 —— 用 basedOn 回溯到来源关卡，
+    // 这样孩子做自己出的题时，手上的工具和刚才**一模一样**。
+    const introduced = L.tacticsForLevel(level.basedOn || level.id);
     return L.TACTICS.filter((t) => introduced.has(t.id));
   }
 
@@ -817,6 +819,9 @@
     btn.onclick = () => {
       const custom = {
         id: "custom-" + Date.now(),
+        // 方法卡是按关卡 id 查的。临时关卡不在关卡表里，所以要带上来源关卡的 id，
+        // 否则 tacticsForLevel 找不到这一关，孩子会拿到一张卡都没有的关卡。
+        basedOn: level.id,
         world: level.world,
         type: "proof",
         title: "我出的题",

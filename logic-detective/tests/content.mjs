@@ -383,6 +383,25 @@ console.log("\n=== 4c. 线索必须可满足（否则任何结论都能「推出
   ok(`${checked} 个命题逻辑关的线索都可满足`);
 }
 
+console.log("\n=== 4d. 临时关卡也要能拿到方法卡 ===");
+{
+  // 「自己出题」会合成一个 id 形如 custom-<时间戳> 的临时关卡。
+  // 方法卡是按关卡 id 查的，查不到就返回空集合 —— 那样孩子会进到
+  // 一张卡都没有的关卡，根本玩不了。（这个 bug 真发生过。）
+  const fake = LV.tacticsForLevel("custom-1234567890");
+  if (fake.size === 0)
+    fail("临时关卡拿到 0 张方法卡 —— 孩子进到一张卡都没有的关卡");
+  else ok(`临时关卡能拿到 ${fake.size} 张方法卡（兜底：全部介绍过的卡）`);
+
+  // 每一关都必须至少有一张卡，否则那一关必然卡死
+  const noCards = LV.LEVELS.filter(
+    (l) => l.type === "proof" && LV.tacticsForLevel(l.id).size === 0
+  );
+  if (noCards.length)
+    fail(`这些证明关一张方法卡都没有：${noCards.map((l) => l.id).join("、")}`);
+  else ok("所有证明关都至少有一张方法卡");
+}
+
 console.log("\n=== 5. 一致性 ===");
 {
   const known = new Set(E.TACTICS.map((t) => t.id));

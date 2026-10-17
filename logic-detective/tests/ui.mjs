@@ -359,6 +359,39 @@ for (const level of LV.LEVELS) {
       failedLevels.push(level.id);
       continue;
     }
+
+    // ★ 回归：点「做做看我出的题」，必须能拿到方法卡。
+    //   临时关卡的 id 不在关卡表里，以前 tacticsForLevel 返回空集合，
+    //   孩子会进到一张卡都没有的关卡，根本玩不了。
+    const tryBtn = [...doc.querySelectorAll("#create-play button")].find((b) =>
+      b.textContent.includes("做做看")
+    );
+    if (!tryBtn) {
+      fail(`${level.id} 没有「做做看我出的题」按钮`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    click(tryBtn);
+    const customCards = doc.querySelectorAll("#card-palette .card").length;
+    if (!customCards) {
+      fail(`${level.id} 点「做做看我出的题」之后方法卡一张都没有`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    ok(`${level.id} 做自己出的题时能拿到 ${customCards} 张方法卡`);
+
+    // 「做做看」是加分项，不算这一关的通关 —— 回来重新走一遍再收工
+    gotoLevel(level.id);
+    const pool2 = [...doc.querySelectorAll("#create-pool .create-chip")];
+    combo.givens.forEach((i) => click(pool2[i]));
+    const goals2 = [...doc.querySelectorAll("#create-goals .create-chip")];
+    click(goals2[combo.goal]);
+    click($("btn-create-check"));
+    if (!$("create-feedback").classList.contains("good")) {
+      fail(`${level.id} 重新走一遍出题流程时没判成立`);
+      failedLevels.push(level.id);
+      continue;
+    }
     const fin = [...doc.querySelectorAll("#create-play button")].find((b) =>
       b.textContent.includes("收工")
     );

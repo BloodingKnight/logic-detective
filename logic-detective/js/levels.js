@@ -2793,6 +2793,13 @@
   function tacticsForLevel(levelId) {
     const upto = LEVELS.findIndex((l) => l.id === levelId);
     const set = new Set();
+    // 找不到这一关 —— 比如「自己出题」生成的临时关卡（id 是 custom-<时间戳>）。
+    // 以前这里会返回**空集合**，结果那一关一张方法卡都没有，孩子根本玩不了。
+    // 现在退一步：把「所有介绍过的卡」都给他。
+    if (upto < 0) {
+      for (const l of LEVELS) for (const c of l.newCards || []) set.add(c);
+      return set;
+    }
     for (let i = 0; i <= upto; i++) {
       for (const c of LEVELS[i].newCards || []) set.add(c);
     }
