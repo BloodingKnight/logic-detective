@@ -569,10 +569,22 @@
     }
 
     currentLevel = level;
+    // 先把所有视图藏起来，再让下面各自打开自己那一个 ——
+    // 加新关卡类型时只要在这里补一个名字，不会漏掉某个分支导致两个视图同时露出来
+    for (const v of [
+      "teach-view",
+      "proof-view",
+      "quiz-view",
+      "summary-view",
+      "create-view",
+      "explain-view",
+    ])
+      $(v).hidden = true;
     if (level.type === "teach") startTeach(level);
     else if (level.type === "quiz") startQuiz(level);
     else if (level.type === "summary") startSummary(level);
     else if (level.type === "create") startCreate(level);
+    else if (level.type === "explain") startExplain(level);
     else startProof(level);
     updateCourseBanner(level);
     showScreen("screen-level");
@@ -802,6 +814,100 @@
       showDone(lv, { emoji: "🎨", title: "你出题成功了！" });
     };
     play.appendChild(fin);
+  }
+
+  // ------------------------------------------------------------ 讲解关
+  //
+  // 反过来：**别人**推了一段，其中一步是错的，让孩子抓出来。
+  //
+  // 为什么这一关值得做：会做一道题，和会「检查别人的推理」是两种能力。
+  // 后者更接近真实的数学和编程 —— 你大部分时间都在看别人的东西哪里不对。
+  // 而且它好判分：错了就是错了，不用猜孩子怎么想的。
+
+  let explainLevel = null;
+  let explainFound = false;
+
+  function startExplain(level) {
+    session = null;
+    quiz = null;
+    teachLevel = null;
+    summaryLevel = null;
+    createLevel = null;
+    explainLevel = level;
+    explainFound = false;
+
+    $("teach-view").hidden = true;
+    $("proof-view").hidden = true;
+    $("quiz-view").hidden = true;
+    $("summary-view").hidden = true;
+    $("create-view").hidden = true;
+    $("explain-view").hidden = false;
+
+    $("explain-title").textContent = level.title;
+    $("explain-brief-body").innerHTML = mdToHtml(level.intro || "");
+    $("explain-feedback").hidden = true;
+    $("explain-play").hidden = true;
+    $("explain-play").innerHTML = "";
+
+    const box = $("explain-steps");
+    box.innerHTML = "";
+    level.stepsF.forEach((f, i) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "explain-step";
+      row.dataset.step = String(i);
+      row.innerHTML =
+        `<span class="es-num">${i + 1}</span>` +
+        `<span class="es-body">` +
+        `<span class="es-claim">${fshow(f)}</span>` +
+        `<span class="es-why">${inlineMd(level.steps[i].why || "")}</span>` +
+        `</span>`;
+      row.onclick = () => pickExplainStep(i);
+      box.appendChild(row);
+    });
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function pickExplainStep(i) {
+    if (explainFound || !explainLevel) return;
+    const fb = $("explain-feedback");
+
+    if (i !== explainLevel.wrongIndex) {
+      sfxOops();
+      fb.hidden = false;
+      fb.className = "feedback bad";
+      fb.innerHTML = mdToHtml(
+        `第 ${i + 1} 步**没问题** —— 它确实能从前面推出来。再看看别的。`
+      );
+      return;
+    }
+
+    explainFound = true;
+    sfxWin();
+    fb.hidden = false;
+    fb.className = "feedback good";
+    fb.innerHTML = mdToHtml(
+      `🎯 **找到了！第 ${i + 1} 步是错的。**\n\n` +
+        (explainLevel.explanation || "") +
+        (explainLevel.fix ? `\n\n✅ **正确的做法**：${explainLevel.fix}` : "")
+    );
+    [...$("explain-steps").children].forEach((el, k) => {
+      if (k === i) el.classList.add("wrong");
+    });
+
+    const play = $("explain-play");
+    play.hidden = false;
+    play.innerHTML = "";
+    const b = document.createElement("button");
+    b.className = "big-primary";
+    b.textContent = "明白了，收工 ▶";
+    b.onclick = () => {
+      const lv = explainLevel;
+      explainLevel = null;
+      showDone(lv, { emoji: "🕵️", title: "抓到错误了！" });
+    };
+    play.appendChild(b);
   }
 
   // ------------------------------------------------------------ 新道具介绍

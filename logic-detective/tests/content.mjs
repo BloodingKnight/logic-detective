@@ -63,9 +63,28 @@ console.log("\n=== 1. 关卡结构 ===");
     seen.add(lv.id);
     if (!LV.WORLD_INDEX.hasOwnProperty(lv.world)) fail(`${lv.id} 的世界不存在`);
     if (
-      !["teach", "quiz", "proof", "summary", "create"].includes(lv.type)
+      !["teach", "quiz", "proof", "summary", "create", "explain"].includes(
+        lv.type
+      )
     )
       fail(`${lv.id} 的类型 "${lv.type}" 不认识`);
+    if (lv.type === "explain") {
+      if (!lv.stepsF || lv.stepsF.length < 2) fail(`讲解关 ${lv.id} 少于两步`);
+      else if (
+        typeof lv.wrongIndex !== "number" ||
+        lv.wrongIndex < 0 ||
+        lv.wrongIndex >= lv.stepsF.length
+      )
+        fail(`讲解关 ${lv.id} 的 wrongIndex 越界`);
+      if (!lv.explanation) fail(`讲解关 ${lv.id} 没说明为什么错`);
+      if (!lv.fix) fail(`讲解关 ${lv.id} 没说正确做法`);
+      // 除了标出来的那一步，其余每一步都得有「因为」
+      const noWhy = (lv.steps || [])
+        .map((s, i) => ({ s, i }))
+        .filter((x) => x.i !== lv.wrongIndex && !x.s.why);
+      if (noWhy.length)
+        fail(`讲解关 ${lv.id} 有 ${noWhy.length} 步没写理由 —— 孩子没法判断对错`);
+    }
     if (lv.type === "summary") {
       if (!lv.points || !lv.points.length) fail(`小结 ${lv.id} 没有要点`);
       if (!lv.graduation) fail(`小结 ${lv.id} 没有毕业标准`);

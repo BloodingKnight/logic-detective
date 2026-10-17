@@ -195,6 +195,7 @@ const SHOTS = [
   { name: "21-paradox", q: "level=knights-l3" },
   { name: "22-summary", q: "level=intro-sum" },
   { name: "23-create", q: "level=chain-create" },
+  { name: "24-explain", q: "level=chain-explain" },
   { name: "14-teach-symbol", q: "level=intro-t4" },
   { name: "15-card-intro", q: "level=either-l3&intro=show" },
   { name: "16-inventory", q: "inv=1&solve=both-l5" },

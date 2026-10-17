@@ -156,6 +156,22 @@
         </div>
       </div>
 
+      <!-- ---- 讲解关：找出推理里错的那一步 ---- -->
+      <div id="explain-view" hidden>
+        <div class="level-head">
+          <h2 id="explain-title"></h2>
+        </div>
+        <details id="explain-brief" class="case-brief" open>
+          <summary>📁 案情简介</summary>
+          <div id="explain-brief-body" class="markdown"></div>
+        </details>
+
+        <div class="explain-prompt">👇 下面这段推理里，<b>有一步推错了</b>。点一下你认为错的那一步。</div>
+        <div id="explain-steps" class="explain-steps"></div>
+        <div id="explain-feedback" class="feedback" hidden></div>
+        <div id="explain-play" class="create-play" hidden></div>
+      </div>
+
       <!-- ---- 自己出题 ---- -->
       <div id="create-view" hidden>
         <div class="level-head">

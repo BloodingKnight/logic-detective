@@ -242,6 +242,49 @@ for (const level of LV.LEVELS) {
     continue;
   }
 
+  if (level.type === "explain") {
+    const rows = [...doc.querySelectorAll("#explain-steps .explain-step")];
+    if (rows.length !== level.stepsF.length) {
+      fail(`${level.id} 显示了 ${rows.length} 步，应该有 ${level.stepsF.length} 步`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    // 先故意点错一步，确认它会说「没问题」而不是直接判过关
+    const wrongPick = level.wrongIndex === 0 ? 1 : 0;
+    click(rows[wrongPick]);
+    const fb0 = $("explain-feedback");
+    if (fb0.hidden || !fb0.classList.contains("bad")) {
+      fail(`${level.id} 点错的那一步没给出「这一步没问题」的反馈`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    // 再点对的那一步
+    click(rows[level.wrongIndex]);
+    const fb1 = $("explain-feedback");
+    if (!fb1.classList.contains("good")) {
+      fail(`${level.id} 点对的那一步没判对`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    if (!$("explain-steps").querySelector(".explain-step.wrong")) {
+      fail(`${level.id} 没标出哪一步是错的`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    const fin = [...doc.querySelectorAll("#explain-play button")][0];
+    if (!fin) {
+      fail(`${level.id} 找到错误后没有「收工」按钮`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    click(fin);
+    if ($("screen-done").hidden) {
+      fail(`${level.id}（讲解关）没走到完成页`);
+      failedLevels.push(level.id);
+    } else solvedCount++;
+    continue;
+  }
+
   if (level.type === "create") {
     const combo = findCreateCombo(level);
     if (!combo) {
