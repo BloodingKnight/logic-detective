@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>逻辑小侦探 🔍</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ======================= 顶栏 ======================= -->
+  <header id="topbar">
+    <button id="btn-back" class="ghost" hidden>← 返回</button>
+    <div id="topbar-title">逻辑小侦探</div>
+    <div id="topbar-right">
+      <button id="btn-inventory" class="ghost icon" title="武器库：看看我有哪些工具">🎒</button>
+      <button id="btn-sound" class="ghost icon" title="声音开关">🔊</button>
+      <button id="btn-settings" class="ghost icon" title="设置">⚙️</button>
+    </div>
+  </header>
+
+  <main id="main">
+
+    <!-- ======================= 首页 ======================= -->
+    <section id="screen-home" class="screen">
+      <div class="hero">
+        <div class="hero-emoji">🔍</div>
+        <h1>逻辑小侦探</h1>
+        <p class="hero-sub">用推理破案，在玩耍里学会数学家的思考方式</p>
+        <div class="hero-stats" id="home-stats"></div>
+        <button id="btn-continue" class="big-primary">继续侦探之旅 ▶</button>
+        <button id="btn-lessons" class="ghost big-ghost">📅 学习路线</button>
+      </div>
+      <h2 class="section-title">案件档案（世界）</h2>
+      <div id="world-grid" class="world-grid"></div>
+      <p class="footer-note">
+        全部内容都在你自己的电脑上运行，不需要联网。进度会自动保存。
+      </p>
+    </section>
+
+    <!-- ======================= 学习路线 ======================= -->
+    <section id="screen-lessons" class="screen" hidden>
+      <div class="lessons-head">
+        <h2>📅 学习路线</h2>
+        <p class="lessons-sub">
+          一共 <span id="lessons-total"></span>，每次约半小时。<br>
+          做完一次别问「做完了吗」—— 问下面那句<b>毕业标准</b>，孩子能用自己的话说出来，才是真懂了。
+        </p>
+      </div>
+      <div id="lesson-list" class="lesson-list"></div>
+    </section>
+
+    <!-- ======================= 世界 ======================= -->
+    <section id="screen-world" class="screen" hidden>
+      <div id="world-head" class="world-head"></div>
+      <div id="level-list" class="level-list"></div>
+    </section>
+
+    <!-- ======================= 关卡 ======================= -->
+    <section id="screen-level" class="screen" hidden>
+
+      <!-- ---- 介绍关：先教，后考 ---- -->
+      <div id="teach-view" hidden>
+        <div class="teach-card">
+          <div class="teach-symbol" id="teach-symbol"></div>
+          <h2 id="teach-title"></h2>
+          <div id="teach-body" class="markdown"></div>
+          <button id="btn-teach-done" class="big-primary">我明白啦 ▶</button>
+        </div>
+      </div>
+
+      <!-- ---- 证明关 ---- -->
+      <div id="proof-view" hidden>
+        <div class="level-head">
+          <h2 id="proof-title"></h2>
+          <div class="level-tools">
+            <button id="btn-undo" class="tool">↩️ 撤销</button>
+            <button id="btn-hint" class="tool">💡 提示</button>
+            <button id="btn-reset" class="tool">🔄 重来</button>
+          </div>
+        </div>
+
+        <details id="proof-brief" class="case-brief" open>
+          <summary>📁 案情简介</summary>
+          <div id="proof-brief-body" class="markdown"></div>
+        </details>
+
+        <div id="feedback" class="feedback" hidden></div>
+        <div id="pick-banner" class="pick-banner" hidden>
+          <span id="pick-text"></span>
+          <button id="btn-cancel-pick" class="ghost small">取消</button>
+        </div>
+        <div id="formula-picker" class="formula-picker" hidden></div>
+
+        <div class="proof-layout">
+          <div class="proof-main">
+            <div id="goal-box" class="goal-box"></div>
+            <div id="assume-box" class="assume-box" hidden></div>
+            <div class="pane-title">📋 线索</div>
+            <div id="clue-list" class="clue-list"></div>
+            <div id="todo-box" class="todo-box" hidden></div>
+          </div>
+
+          <aside class="proof-side">
+            <div class="pane-title">📜 推理记录</div>
+            <div id="proof-log" class="proof-log"></div>
+          </aside>
+        </div>
+
+        <div class="palette-wrap">
+          <div class="pane-title">🃏 方法卡</div>
+          <div id="card-palette" class="card-palette"></div>
+        </div>
+      </div>
+
+      <!-- ---- 选择题 ---- -->
+      <div id="quiz-view" hidden>
+        <div class="level-head">
+          <h2 id="quiz-title"></h2>
+          <div class="level-tools">
+            <button id="btn-quiz-reset" class="tool">🔄 重来</button>
+          </div>
+        </div>
+        <details id="quiz-brief" class="case-brief" open>
+          <summary>📁 案情简介</summary>
+          <div id="quiz-brief-body" class="markdown"></div>
+        </details>
+        <div id="quiz-question" class="quiz-question"></div>
+        <div id="quiz-options" class="quiz-options"></div>
+        <div id="quiz-feedback" class="feedback" hidden></div>
+      </div>
+
+    </section>
+
+    <!-- ======================= 通关 ======================= -->
+    <section id="screen-done" class="screen" hidden>
+      <div class="done-card">
+        <div class="done-emoji" id="done-emoji">🎉</div>
+        <h2 id="done-title">破案啦！</h2>
+        <div id="done-conclusion" class="markdown"></div>
+        <div id="done-xp" class="done-xp"></div>
+        <div class="done-actions">
+          <button id="btn-next" class="big-primary">下一关 ▶</button>
+          <button id="btn-done-back" class="ghost">回到关卡列表</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ======================= 设置弹层 ======================= -->
+<div id="settings-modal" class="modal" hidden>
+  <div class="modal-card">
+    <h3>⚙️ 设置</h3>
+    <label class="switch-row">
+      <input type="checkbox" id="opt-hints-highlight">
+      <span>选中卡片时，把能用的线索<b>高亮</b>出来（新手推荐）</span>
+    </label>
+    <label class="switch-row">
+      <input type="checkbox" id="opt-show-formula">
+      <span>在推理记录里显示数学符号</span>
+    </label>
+    <label class="switch-row">
+      <input type="checkbox" id="opt-sound">
+      <span>开启音效</span>
+    </label>
+    <div class="modal-actions">
+      <button id="btn-clear-progress" class="danger">清空全部进度</button>
+      <button id="btn-close-settings" class="big-primary">好的</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 新道具介绍（先介绍，再上手） ======================= -->
+<div id="card-intro" class="modal" hidden>
+  <div class="modal-card wide">
+    <h3 id="card-intro-title">🎁 新道具</h3>
+    <p class="modal-sub">先认识一下，等会儿就要用它们破案了。</p>
+    <div id="card-intro-list" class="intro-list"></div>
+    <div class="modal-actions">
+      <button id="btn-card-intro-ok" class="big-primary">知道啦，开始破案 ▶</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= 武器库 ======================= -->
+<div id="inventory" class="modal" hidden>
+  <div class="modal-card wide inventory">
+    <div class="inv-head">
+      <h3>🎒 侦探武器库</h3>
+      <button id="btn-close-inventory" class="ghost">关闭</button>
+    </div>
+    <p class="modal-sub">这里记着你已经学会的全部工具。随时可以回来翻一翻。</p>
+    <div class="inv-tabs">
+      <button class="inv-tab active" data-tab="cards">🃏 方法卡</button>
+      <button class="inv-tab" data-tab="symbols">🔣 符号</button>
+    </div>
+    <div id="inv-body" class="inv-body"></div>
+  </div>
+</div>
+
+<!-- ======================= 通关撒花 ======================= -->
+<div id="confetti" class="confetti" hidden></div>
+
+<script src="js/logic.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/levels.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

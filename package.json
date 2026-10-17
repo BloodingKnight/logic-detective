@@ -1,0 +1,16 @@
+{
+  "name": "logic-detective-harness",
+  "private": true,
+  "version": "1.0.0",
+  "description": "《逻辑小侦探》的开发/测试脚手架。游戏本体在 logic-detective/ 里，不需要这些依赖即可运行。",
+  "scripts": {
+    "test": "node logic-detective/tests/smoke.mjs && node logic-detective/tests/equality.mjs && node logic-detective/tests/content.mjs && node logic-detective/tests/ui.mjs",
+    "test:engine": "node logic-detective/tests/smoke.mjs",
+    "test:equality": "node logic-detective/tests/equality.mjs",
+    "test:content": "node logic-detective/tests/content.mjs",
+    "test:ui": "node logic-detective/tests/ui.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
+}

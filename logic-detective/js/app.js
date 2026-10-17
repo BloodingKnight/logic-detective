@@ -1,0 +1,1296 @@
+/*!
+ * 《逻辑小侦探》— 界面与流程
+ *
+ * 这一层只负责「怎么呈现」和「怎么走流程」，一点逻辑判断都不做。
+ * 所有推理都交给 engine.js 的真实证明内核，界面只是它的一个友好外壳。
+ */
+(function () {
+  "use strict";
+
+  const L = window.LD;
+  const $ = (id) => document.getElementById(id);
+
+  // ============================================================ 小工具
+
+  const esc = (s) =>
+    String(s).replace(/[&<>"]/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])
+    );
+
+  /** 极简 markdown：只支持 **粗体** 和 `代码`，以及空行分段。 */
+  function inlineMd(s) {
+    return esc(s)
+      .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+      .replace(/`(.+?)`/g, "<code>$1</code>");
+  }
+  function mdToHtml(src) {
+    return String(src || "")
+      .split("\n")
+      .map((line) =>
+        line.trim() === "" ? '<div class="sp"></div>' : "<p>" + inlineMd(line) + "</p>"
+      )
+      .join("");
+  }
+
+  // 逻辑符号的颜色编码渲染。
+  // 括号规则必须和 logic.js 的 show() **完全一致** ——
+  // 不一致的话，同一个公式在「目标框」和「推理记录」里会长得不一样，
+  // 孩子会以为它们是两个东西。ui.mjs 里有一条测试专门盯着这件事。
+  const PREC = { imp: 1, or: 2, and: 3, not: 4, atom: 5, false: 5 };
+
+  /** ∨ 的操作数：是 ∧ 就补一层括号 */
+  function orOperandHtml(x) {
+    return x.k === "and" ? "(" + fhtml(x, 0, false) + ")" : fhtml(x, 2, false);
+  }
+  /** → 的操作数：只要是复合公式就补括号 */
+  function impOperandHtml(x) {
+    return "(" + fhtml(x, 0, false) + ")";
+  }
+
+  // 算式的 HTML 渲染。括号规则必须和 logic.js 的 showTerm 一致：
+  // 同级的 + 要加括号（(x+1)+0），succ 套 succ 也要（succ (succ 0)）——
+  // 因为孩子改写时操作的正是结构，省掉括号就看不出来该换哪一块。
+  const TPREC = { add: 1, mul: 2, succ: 3, num: 4, var: 4 };
+  function htmlTerm(t, minPrec) {
+    let s;
+    switch (t.t) {
+      case "num":
+        s = esc(String(t.n));
+        break;
+      case "var":
+        s = '<span class="atom">' + esc(t.name) + "</span>";
+        break;
+      case "succ":
+        s = '<span class="op op-imp">succ</span> ' + htmlTerm(t.a, 4);
+        break;
+      case "add":
+        s =
+          htmlTerm(t.a, 2) +
+          ' <span class="op op-and">+</span> ' +
+          htmlTerm(t.b, 2);
+        break;
+      case "mul":
+        s =
+          htmlTerm(t.a, 3) +
+          ' <span class="op op-or">×</span> ' +
+          htmlTerm(t.b, 3);
+        break;
+      default:
+        s = "?";
+    }
+    if ((TPREC[t.t] || 0) < (minPrec || 0)) return "(" + s + ")";
+    return s;
+  }
+
+  function fhtml(f, minPrec, strict) {
+    // 归纳法的变量选择器会把「项」当候选递进来，这里要能接住
+    if (f && f.t !== undefined) return htmlTerm(f, minPrec || 0);
+    const p = PREC[f.k] || 0;
+    let inner;
+    switch (f.k) {
+      case "atom":
+        inner = '<span class="atom">' + esc(f.name) + "</span>";
+        break;
+      case "false":
+        inner = '<span class="op op-false">⊥</span>';
+        break;
+      case "eq":
+        // 等式：等号两边各是一个算式
+        inner =
+          htmlTerm(f.a, 0) + ' <span class="op op-imp">=</span> ' + htmlTerm(f.b, 0);
+        break;
+      case "not":
+        inner = '<span class="op op-not">¬</span>' + fhtml(f.a, 4, false);
+        break;
+      case "and":
+        inner =
+          fhtml(f.a, 3, false) +
+          ' <span class="op op-and">∧</span> ' +
+          fhtml(f.b, 3, false);
+        break;
+      case "or":
+        inner =
+          orOperandHtml(f.a) +
+          ' <span class="op op-or">∨</span> ' +
+          orOperandHtml(f.b);
+        break;
+      case "imp":
+        inner =
+          (f.a.k === "and" || f.a.k === "or" || f.a.k === "imp"
+            ? "(" + fhtml(f.a, 0, false) + ")"
+            : fhtml(f.a, 0, false)) +
+          ' <span class="op op-imp">→</span> ' +
+          (f.b.k === "and" || f.b.k === "or" || f.b.k === "imp"
+            ? "(" + fhtml(f.b, 0, false) + ")"
+            : fhtml(f.b, 0, false));
+        break;
+      default:
+        inner = "?";
+    }
+    if (p < minPrec || (strict && p === minPrec))
+      return '<span class="paren">(</span>' + inner + '<span class="paren">)</span>';
+    return inner;
+  }
+  const fshow = (f) => fhtml(f, 0, false);
+
+  const TONES = {
+    green: "#16a34a",
+    blue: "#2563eb",
+    orange: "#ea580c",
+    purple: "#9333ea",
+    red: "#dc2626",
+  };
+
+  // ============================================================ 音效
+
+  let audioCtx = null;
+  function beep(freqs, dur) {
+    if (!save.settings.sound) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      audioCtx = audioCtx || new AC();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      freqs.forEach((f, i) => {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = "sine";
+        o.frequency.value = f;
+        const t0 = audioCtx.currentTime + i * dur;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.09, t0 + 0.012);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        o.connect(g);
+        g.connect(audioCtx.destination);
+        o.start(t0);
+        o.stop(t0 + dur + 0.03);
+      });
+    } catch (e) {
+      /* 没声音也照样玩 */
+    }
+  }
+  const sfxStep = () => beep([720], 0.09);
+  const sfxWin = () => beep([523, 659, 784, 1047], 0.135);
+  const sfxOops = () => beep([240, 190], 0.13);
+  const sfxClick = () => beep([520], 0.06);
+
+  // ============================================================ 进度存档
+
+  // 存档键带版本号。世界重排时关卡 id 换过（w6-l1 → numbers-l1），
+  // 旧存档里的 id 一个都对不上，所以直接换键名，让旧数据自然作废，
+  // 而不是留下一个「进度看起来丢了但其实是 id 不匹配」的糊涂状态。
+  const STORE_KEY = "logic-detective-v2";
+
+  function defaultSave() {
+    return {
+      solved: {},
+      // 已经介绍过的方法卡。用来决定「新道具介绍」要不要弹，
+      // 也决定武器库里哪些是亮的、哪些还锁着。
+      seenCards: {},
+      settings: { highlight: true, sound: true, legend: true },
+    };
+  }
+
+  function loadSave() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (!raw) return defaultSave();
+      const parsed = JSON.parse(raw);
+      const d = defaultSave();
+      return {
+        solved: parsed.solved || {},
+        seenCards: parsed.seenCards || {},
+        settings: Object.assign(d.settings, parsed.settings || {}),
+      };
+    } catch (e) {
+      return defaultSave();
+    }
+  }
+
+  function persist() {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(save));
+    } catch (e) {
+      /* 隐私模式下存不了也无所谓，这次能玩就行 */
+    }
+  }
+
+  let save = loadSave();
+
+  // ============================================================ 页面切换
+
+  const SCREENS = [
+    "screen-home",
+    "screen-lessons",
+    "screen-world",
+    "screen-level",
+    "screen-done",
+  ];
+  let currentScreen = "screen-home";
+
+  function showScreen(id) {
+    currentScreen = id;
+    SCREENS.forEach((s) => ($(s).hidden = s !== id));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    $("btn-back").hidden = id === "screen-home";
+  }
+
+  // ============================================================ 首页
+
+  function renderHome() {
+    const total = L.LEVELS.length;
+    const done = L.LEVELS.filter((l) => save.solved[l.id]).length;
+
+    $("home-stats").innerHTML = [
+      { n: done, t: "已破案件" },
+      { n: total, t: "案件总数" },
+      { n: L.WORLDS.length, t: "案件档案" },
+    ]
+      .map(
+        (s) =>
+          `<div class="stat"><b>${s.n}</b><span>${esc(s.t)}</span></div>`
+      )
+      .join("");
+
+    const next = nextPlayable();
+    $("btn-continue").textContent = done === 0 ? "开始侦探之旅 ▶" : "继续侦探之旅 ▶";
+    $("btn-continue").disabled = !next;
+
+    $("world-grid").innerHTML = "";
+    for (const w of L.WORLDS) {
+      const unlocked = L.isWorldUnlocked(w.id, save.solved);
+      const { done: d, total: t } = L.worldProgress(w.id, save.solved);
+      const card = document.createElement("button");
+      card.className = "world-card" + (unlocked ? "" : " locked");
+      card.style.setProperty("--wc", w.color);
+      card.innerHTML = `
+        <div class="world-emoji">${w.emoji}</div>
+        <div class="world-name">${esc(w.name)}</div>
+        <div class="world-desc">${esc(w.desc)}</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:${
+          t ? (d / t) * 100 : 0
+        }%"></div></div>
+        <div class="progress-text">${
+          unlocked ? `${d} / ${t} 关` : "🔒 完成上一个档案后解锁"
+        }</div>`;
+      if (unlocked) card.onclick = () => openWorld(w.id);
+      else card.onclick = () => sfxOops();
+      $("world-grid").appendChild(card);
+    }
+  }
+
+  /** 下一个可以玩的关卡：按顺序找第一个没做过的、且已解锁的 */
+  function nextPlayable() {
+    for (const lv of L.LEVELS) {
+      if (save.solved[lv.id]) continue;
+      if (!L.isWorldUnlocked(lv.world, save.solved)) return null;
+      if (!L.isUnlocked(lv, save.solved)) continue;
+      return lv;
+    }
+    return null;
+  }
+
+  // ============================================================ 学习路线
+  //
+  // 把 68 关切成 14 次、每次约半小时。每一课都带一句「毕业标准」——
+  // 做完之后家长问这一句，孩子能用自己的话说出来才算过关。
+  // 这一页解决的是「一次玩多久、玩到哪儿停」。
+
+  function renderLessons() {
+    const totalMin = L.LESSONS.reduce((a, l) => a + l.minutes, 0);
+    $("lessons-total").textContent = `${L.LESSONS.length} 次、约 ${totalMin} 分钟`;
+
+    const box = $("lesson-list");
+    box.innerHTML = "";
+    L.LESSONS.forEach((lesson) => {
+      const levels = lesson.levels.map((id) => L.findLevel(id)).filter(Boolean);
+      const done = levels.filter((lv) => save.solved[lv.id]).length;
+      const allDone = done === levels.length;
+      const next = levels.find((lv) => !save.solved[lv.id]) || levels[0];
+      // 前一课没做完就锁上，免得跳着玩看不懂
+      const prevDone =
+        lesson.n === 1 ||
+        L.LESSONS[lesson.n - 2].levels.every((id) => save.solved[id]);
+
+      const card = document.createElement("div");
+      card.className =
+        "lesson-card" + (allDone ? " done" : "") + (prevDone ? "" : " locked");
+      card.dataset.lesson = String(lesson.n);
+      card.innerHTML = `
+        <div class="lc-num">${allDone ? "✓" : lesson.n}</div>
+        <div class="lc-main">
+          <div class="lc-title">第 ${lesson.n} 次 · ${esc(lesson.title)}</div>
+          <div class="lc-meta">约 ${lesson.minutes} 分钟 · ${levels.length} 关 · 已完成 ${done}/${levels.length}</div>
+          <div class="lc-goal">🎓 <b>毕业标准</b>：${esc(lesson.goal)}</div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${
+            levels.length ? (done / levels.length) * 100 : 0
+          }%"></div></div>
+        </div>
+        <div class="lc-go">${
+          !prevDone ? "🔒" : allDone ? "🔁 再来" : done ? "▶ 继续" : "▶ 开始"
+        }</div>`;
+
+      card.onclick = () => {
+        if (!prevDone) return sfxOops();
+        sfxClick();
+        openLevel(next.id);
+      };
+      box.appendChild(card);
+    });
+  }
+
+  // ============================================================ 世界页
+
+  let currentWorldId = null;
+
+  function openWorld(worldId) {
+    currentWorldId = worldId;
+    sfxClick();
+    const w = L.WORLDS.find((x) => x.id === worldId);
+    const levels = L.LEVELS.filter((l) => l.world === worldId);
+
+    $("world-head").style.setProperty("--wc", w.color);
+    $("world-head").innerHTML = `
+      <h2>${w.emoji} ${esc(w.name)}</h2>
+      <div class="wh-desc">${esc(w.desc)}</div>
+      <div class="markdown">${mdToHtml(w.intro)}</div>`;
+
+    $("level-list").innerHTML = "";
+    levels.forEach((lv, i) => {
+      const unlocked = L.isUnlocked(lv, save.solved);
+      const done = !!save.solved[lv.id];
+      const item = document.createElement("button");
+      item.className =
+        "level-item" + (done ? " done" : "") + (unlocked ? "" : " locked");
+      item.innerHTML = `
+        <div class="level-num">${
+          done ? "✓" : lv.type === "teach" ? lv.emoji || "📖" : i + 1
+        }</div>
+        <div class="level-title">${esc(lv.title)}
+          <div class="level-kind">${
+            lv.type === "teach"
+              ? "先认识一下"
+              : lv.type === "quiz"
+              ? "选择题"
+              : "推理题"
+          }</div>
+        </div>
+        <div class="level-status">${done ? "⭐" : unlocked ? "▶" : "🔒"}</div>`;
+      item.onclick = () => {
+        if (!unlocked) return sfxOops();
+        openLevel(lv.id);
+      };
+      $("level-list").appendChild(item);
+    });
+
+    showScreen("screen-world");
+  }
+
+  // ============================================================ 关卡
+
+  let session = null;
+  let teachLevel = null;
+  let currentLevel = null; // 最近打开的关卡（三种类型通用，供「下一关」用）
+
+  /**
+   * 打开一关。
+   *
+   * 如果这一关会用到还没见过的方法卡，先弹「新道具介绍」——
+   * 新词必须先介绍，不能让孩子在做题的时候第一次遇到它。
+   */
+  function openLevel(levelId, opts) {
+    const level = L.findLevel(levelId);
+    if (!level) return;
+    opts = opts || {};
+    if (!opts.silent) sfxClick();
+
+    if (level.type === "proof" && !opts.skipIntro) {
+      const fresh = (level.newCards || []).filter((id) => !save.seenCards[id]);
+      if (fresh.length) {
+        showCardIntro(level, fresh, () =>
+          openLevel(levelId, { skipIntro: true, silent: true })
+        );
+        return;
+      }
+    }
+
+    currentLevel = level;
+    if (level.type === "teach") startTeach(level);
+    else if (level.type === "quiz") startQuiz(level);
+    else startProof(level);
+    showScreen("screen-level");
+  }
+
+  /**
+   * 这一关能用哪些方法卡。
+   * 「能用」＝「已经介绍过」—— 唯一数据源在 levels.js 的 tacticsForLevel。
+   * 早期版本按「卡片声明的世界 ≤ 当前世界」来算，结果是孩子会先看到卡、
+   * 后看到介绍（`只差一步` 就是这样漏出去的）。
+   */
+  function unlockedTactics(level) {
+    const introduced = L.tacticsForLevel(level.id);
+    return L.TACTICS.filter((t) => introduced.has(t.id));
+  }
+
+  // ------------------------------------------------------------ 介绍关
+
+  /** 纯介绍页：一题都不出，看完点「我明白啦」。 */
+  function startTeach(level) {
+    session = null;
+    quiz = null;
+    teachLevel = level;
+    $("teach-view").hidden = false;
+    $("proof-view").hidden = true;
+    $("quiz-view").hidden = true;
+    $("teach-symbol").textContent = level.symbol || level.emoji || "📖";
+    $("teach-title").textContent = level.title;
+    $("teach-body").innerHTML = mdToHtml(level.body);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  // ------------------------------------------------------------ 新道具介绍
+
+  /**
+   * 新道具介绍弹层。
+   * 每一张卡都说三件事：是什么、什么时候用、举个例子。
+   */
+  function showCardIntro(level, cardIds, onOk) {
+    const list = $("card-intro-list");
+    list.innerHTML = "";
+    cardIds.forEach((id) => {
+      const t = L.TACTIC_MAP[id];
+      if (!t) return;
+      const guide = L.CARD_GUIDE[id] || {};
+      const item = document.createElement("div");
+      item.className = "intro-item";
+      item.style.setProperty("--tone", TONES[t.card.tone] || "#5b6ef5");
+      item.innerHTML =
+        `<div class="ii-head"><span style="font-size:24px">${t.card.emoji}</span>` +
+        `<span>${esc(t.card.name)}</span></div>` +
+        `<div class="ii-tip">${inlineMd(t.card.tip)}</div>` +
+        (guide.when
+          ? `<div class="ii-when">💡 <b>什么时候用？</b>${inlineMd(guide.when)}</div>`
+          : "") +
+        (guide.example
+          ? `<div class="ii-ex">🔎 例如：${inlineMd(guide.example)}</div>`
+          : "");
+      list.appendChild(item);
+    });
+
+    // 标记为已介绍（这样重玩这一关不会再弹）
+    cardIds.forEach((id) => (save.seenCards[id] = true));
+    persist();
+
+    const modal = $("card-intro");
+    modal.hidden = false;
+    $("btn-card-intro-ok").onclick = () => {
+      modal.hidden = true;
+      sfxClick();
+      if (onOk) onOk();
+    };
+  }
+
+  // ------------------------------------------------------------ 证明关
+
+  function startProof(level) {
+    quiz = null;
+    teachLevel = null;
+    const cards = unlockedTactics(level);
+    session = {
+      level,
+      state: L.initialState(level.givensF, level.goalF, level.rulesF),
+      history: [],
+      log: [],
+      pick: null,
+      feedback: null,
+      hintIdx: 0,
+      cards,
+    };
+    $("proof-view").hidden = false;
+    $("quiz-view").hidden = true;
+    $("teach-view").hidden = true;
+    $("proof-title").textContent = level.title;
+    // 有些关（比如入门选择题）没有案情简介，这时整个折叠块藏起来，
+    // 免得孩子点开一个空盒子。
+    const brief = (level.intro || "").trim();
+    $("proof-brief").hidden = !brief;
+    if (brief) {
+      $("proof-brief-body").innerHTML = mdToHtml(brief);
+      $("proof-brief").open = true;
+    }
+    renderProof();
+  }
+
+  function setFeedback(kind, text) {
+    session.feedback = text ? { kind, text } : null;
+    renderFeedback();
+  }
+
+  function renderFeedback() {
+    const box = $("feedback");
+    if (!session || !session.feedback) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    box.className = "feedback " + session.feedback.kind;
+    box.innerHTML = mdToHtml(session.feedback.text);
+  }
+
+  /** 当前这一步，哪些线索是可选的 */
+  function pickCandidates() {
+    if (!session || !session.pick) return [];
+    const goal = L.focused(session.state);
+    const tactic = L.TACTIC_MAP[session.pick.tacticId];
+    const picked = session.pick.picked
+      .map((id) => goal.hyps.find((h) => h.id === id))
+      .filter(Boolean);
+    return L.candidates(goal, tactic, picked);
+  }
+
+  function renderProof() {
+    const st = session.state;
+    const goal = L.focused(st);
+    if (!goal) return; // 已经全部证完，交给通关页去显示
+
+    // ---- 目标 ----
+    const remaining = st.goals.length;
+    $("goal-box").innerHTML = `
+      <div class="goal-label">🎯 要证明</div>
+      <div class="goal-formula">${fshow(goal.target)}</div>
+      ${remaining > 1 ? `<div class="goal-note">后面还排着 ${remaining - 1} 个小目标</div>` : ""}`;
+
+    // ---- 假设区 ----
+    const cands = pickCandidates();
+    const candIds = new Set(cands.map((c) => c.id));
+    const pickedIds = new Set(session.pick ? session.pick.picked : []);
+    const pickTactic = session.pick ? L.TACTIC_MAP[session.pick.tacticId] : null;
+    const isHypPick = !!pickTactic && pickTactic.pickKind !== "formula";
+
+    /**
+     * 造一张线索卡。
+     * 假设框里的「假设」和下面列表里的线索走的是同一套逻辑 ——
+     * 这很重要：分情况讨论产生的分支假设，必须能像普通线索一样被点选，
+     * 否则像「小明选了苹果 ∨ 小明选了香蕉」这种关卡根本没法玩完。
+     */
+    function makeClueNode(h, badge, tagText) {
+      const div = document.createElement("div");
+      const clickable = isHypPick && candIds.has(h.id);
+      div.dataset.hyp = h.id;
+      div.className =
+        "clue " +
+        h.tag +
+        (clickable ? " clickable" : "") +
+        (clickable && save.settings.highlight ? " pickable" : "") +
+        (pickedIds.has(h.id) ? " selected" : "") +
+        (isHypPick && save.settings.highlight && !candIds.has(h.id) ? " dim" : "");
+      div.innerHTML =
+        `<span class="clue-no">${badge}</span>` +
+        `<span>${fshow(h.f)}</span>` +
+        `<span class="clue-tag">${tagText}</span>`;
+      if (clickable) div.onclick = () => onClueClick(h.id);
+      return div;
+    }
+
+    const assumes = goal.hyps.filter((h) => h.tag === "assume");
+    const assumeBox = $("assume-box");
+    if (assumes.length) {
+      assumeBox.hidden = false;
+      assumeBox.innerHTML =
+        '<div class="assume-label">🔮 我们现在假装这些是对的（也可以当线索用）</div>';
+      assumes.forEach((h) =>
+        assumeBox.appendChild(makeClueNode(h, "假", "假设"))
+      );
+    } else {
+      assumeBox.hidden = true;
+      assumeBox.innerHTML = "";
+    }
+
+    // ---- 线索 ----
+    const visible = goal.hyps.filter((h) => h.tag !== "assume");
+    const clueList = $("clue-list");
+    clueList.innerHTML = "";
+    if (!visible.length) {
+      const empty = document.createElement("div");
+      empty.className = "log-empty";
+      empty.textContent = "（这一关一开始没有线索，得靠「先假设」自己造）";
+      clueList.appendChild(empty);
+    }
+    visible.forEach((h, i) =>
+      clueList.appendChild(
+        makeClueNode(
+          h,
+          String(i + 1),
+          // 线索 = 关于特定对象的事实；规则 = 普遍成立的定律（变量是空位）
+          h.tag === "rule" ? "规则" : h.tag === "given" ? "线索" : "推出"
+        )
+      )
+    );
+
+    // ---- 待办清单 ----
+    const todoBox = $("todo-box");
+    if (st.goals.length > 1) {
+      todoBox.hidden = false;
+      todoBox.innerHTML =
+        '<div class="todo-title">⏳ 待办清单（一共 ' +
+        st.goals.length +
+        " 个小目标）</div><ol>" +
+        st.goals
+          .map(
+            (g, i) =>
+              `<li class="${i === 0 ? "current" : ""}">${fshow(g.target)}${
+                i === 0 ? " ← 正在做" : ""
+              }</li>`
+          )
+          .join("") +
+        "</ol>";
+    } else {
+      todoBox.hidden = true;
+    }
+
+    // ---- 推理记录 ----
+    $("proof-log").innerHTML = session.log.length
+      ? session.log
+          .map(
+            (s, i) =>
+              `<div class="log-item"><span class="log-step">${i + 1}.</span>${
+                inlineMd(s.message)
+              }</div>`
+          )
+          .join("")
+      : '<div class="log-empty">还没开始推理。点下面的方法卡试试～</div>';
+    const logPane = $("proof-log");
+    logPane.parentElement.scrollTop = logPane.parentElement.scrollHeight;
+
+    // ---- 方法卡 ----
+    // 把「现在能用」的排在前面。到了后面的世界一共有 13 张卡，
+    // 如果照登记顺序平铺，唯一可用的那张会被埋在十几张灰卡中间，
+    // 孩子得逐张扫过去才知道自己能做什么。排序后左上角永远是「现在能做的」。
+    const newCards = new Set(session.level.newCards || []);
+    const cardStates = session.cards.map((t) => ({ t, usable: L.isUsable(goal, t) }));
+    cardStates.sort((a, b) => (a.usable === b.usable ? 0 : a.usable ? -1 : 1));
+
+    $("card-palette").innerHTML = "";
+    cardStates.forEach(({ t, usable }) => {
+      const btn = document.createElement("button");
+      const active = session.pick && session.pick.tacticId === t.id;
+      btn.className =
+        "card" + (usable ? "" : " disabled") + (active ? " active" : "");
+      btn.style.setProperty("--tone", TONES[t.card.tone] || "#5b6ef5");
+      btn.title = t.card.tip + (usable ? "" : "（现在用不上）");
+      btn.innerHTML =
+        (newCards.has(t.id) ? '<span class="card-new">新</span>' : "") +
+        `<span class="card-emoji">${t.card.emoji}</span><span>${esc(
+          t.card.name
+        )}</span>`;
+      btn.onclick = () => onCardClick(t.id, usable);
+      $("card-palette").appendChild(btn);
+    });
+
+    // 图例
+    const legend = document.createElement("div");
+    legend.className = "legend";
+    if (save.settings.legend) {
+      legend.innerHTML =
+        '<span><span class="op op-and">∧</span> 且（两个都要）</span>' +
+        '<span><span class="op op-or">∨</span> 或（一个就够）</span>' +
+        '<span><span class="op op-not">¬</span> 非（不是）</span>' +
+        '<span><span class="op op-imp">→</span> 如果…那么…</span>';
+    }
+    $("card-palette").appendChild(legend);
+
+    // ---- 选线索提示条 / 公式选择器 ----
+    const banner = $("pick-banner");
+    const picker = $("formula-picker");
+    if (session.pick) {
+      const tactic = L.TACTIC_MAP[session.pick.tacticId];
+      const pickedHyps = session.pick.picked
+        .map((id) => goal.hyps.find((h) => h.id === id))
+        .filter(Boolean);
+      if (tactic.pickKind === "formula") {
+        banner.hidden = true;
+        picker.hidden = false;
+        picker.innerHTML =
+          '<div class="picker-note">' +
+          esc(tactic.pickPrompt(pickedHyps)) +
+          "</div>";
+        cands.forEach((c) => {
+          const chip = document.createElement("button");
+          chip.className = "formula-chip";
+          chip.innerHTML = fshow(c.f);
+          chip.onclick = () => onFormulaPick(c.id);
+          picker.appendChild(chip);
+        });
+        if (!cands.length) {
+          const none = document.createElement("div");
+          none.className = "picker-note";
+          none.textContent = "现在没有可以选的公式，换张卡试试？";
+          picker.appendChild(none);
+        }
+      } else {
+        picker.hidden = true;
+        banner.hidden = false;
+        $("pick-text").textContent = tactic.pickPrompt(pickedHyps);
+      }
+    } else {
+      banner.hidden = true;
+      picker.hidden = true;
+    }
+
+    // ---- 按钮状态 ----
+    $("btn-undo").disabled = session.history.length === 0;
+    $("btn-hint").disabled = false;
+
+    renderFeedback();
+  }
+
+  function onCardClick(tacticId, usable) {
+    if (!usable) return sfxOops();
+    const tactic = L.TACTIC_MAP[tacticId];
+    const arity = tactic.arity || 0;
+    if (arity === 0) {
+      doMove(tacticId, []);
+      return;
+    }
+    sfxClick();
+    session.pick = { tacticId, picked: [] };
+    setFeedback("info", tactic.card.tip);
+    renderProof();
+  }
+
+  function onClueClick(hypId) {
+    if (!session.pick) return;
+    const tactic = L.TACTIC_MAP[session.pick.tacticId];
+    if (tactic.pickKind === "formula") return;
+    if (session.pick.picked.includes(hypId)) return;
+    if (!pickCandidates().some((h) => h.id === hypId)) {
+      sfxOops();
+      setFeedback("bad", "这条线索用不上哦。再想想：这张卡需要什么样的线索？");
+      return;
+    }
+    session.pick.picked.push(hypId);
+    if (session.pick.picked.length >= (tactic.arity || 0)) {
+      const picks = session.pick.picked.slice();
+      doMove(tactic.id, picks);
+    } else {
+      sfxClick();
+      renderProof();
+    }
+  }
+
+  function onFormulaPick(candidateId) {
+    if (!session.pick) return;
+    const picks = session.pick.picked.concat([candidateId]);
+    doMove(session.pick.tacticId, picks);
+  }
+
+  function cancelPick() {
+    session.pick = null;
+    setFeedback(null);
+    renderProof();
+  }
+
+  function doMove(tacticId, picks) {
+    try {
+      const res = L.applyMove(session.state, tacticId, picks);
+      session.history.push({ state: session.state, log: session.log.slice() });
+      session.state = res.state;
+      session.log.push({ tactic: tacticId, message: res.message });
+      session.pick = null;
+      if (L.isSolved(session.state)) {
+        // 注意：这里不能再调 renderProof() —— 目标已经全部证完，
+        // focused() 返回 undefined，重新渲染会直接抛异常。
+        onSolved();
+      } else {
+        sfxStep();
+        setFeedback("good", res.message);
+        renderProof();
+      }
+    } catch (e) {
+      sfxOops();
+      session.pick = null;
+      setFeedback("bad", e.message);
+      renderProof();
+    }
+  }
+
+  function undo() {
+    if (!session.history.length) return;
+    const h = session.history.pop();
+    session.state = h.state;
+    session.log = h.log;
+    session.pick = null;
+    sfxClick();
+    setFeedback("info", "退回上一步了，再来一次～");
+    renderProof();
+  }
+
+  function resetLevel() {
+    startProof(session.level);
+    setFeedback("info", "重新开始这一关。加油！");
+    renderProof();
+  }
+
+  // ------------------------------------------------------------ 提示
+
+  function showHint() {
+    const hints = session.level.hints || [];
+    if (session.hintIdx < hints.length) {
+      setFeedback("info", "💡 提示 " + (session.hintIdx + 1) + "：" + hints[session.hintIdx]);
+      session.hintIdx++;
+      sfxClick();
+      return;
+    }
+    // 手写提示用完了，就让求解器算一步
+    setFeedback("info", "💡 让我想想…");
+    setTimeout(() => {
+      const sol = L.solve(session.state, { maxDepth: 12, maxNodes: 30000 });
+      if (!sol || !sol.path.length) {
+        setFeedback(
+          "bad",
+          "我也绕晕了 😅 试试「🔄 重来」，或者回顾一下线索。"
+        );
+        return;
+      }
+      const step = sol.path[0];
+      const tactic = L.TACTIC_MAP[step.tactic];
+      const goal = L.focused(session.state);
+      const clueTexts = step.picks
+        .map((id) => {
+          const h = goal.hyps.find((x) => x.id === id);
+          if (h) return "「" + L.show(h.f) + "」";
+          const c = L.candidates(goal, tactic, []).find((x) => x.id === id);
+          return c ? "「" + L.show(c.f) + "」" : "";
+        })
+        .filter(Boolean)
+        .join("、");
+      setFeedback(
+        "info",
+        `💡 可以试试 **${tactic.card.emoji} ${tactic.card.name}**` +
+          (clueTexts ? `，选 ${clueTexts}` : "") +
+          "。"
+      );
+      sfxClick();
+    }, 30);
+  }
+
+  // ------------------------------------------------------------ 过关
+
+  /**
+   * 通关结算。证明关、选择题、介绍关三种共用这一套，
+   * 只有标题和表情不一样。
+   */
+  function showDone(lv, opts) {
+    opts = opts || {};
+    const firstTime = !save.solved[lv.id];
+    save.solved[lv.id] = true;
+    persist();
+    sfxWin();
+    confetti();
+
+    $("done-emoji").textContent =
+      opts.emoji ||
+      ["🎉", "🏆", "🌟", "🕵️", "💡", "🧠"][Math.floor(Math.random() * 6)];
+    $("done-title").textContent = firstTime
+      ? opts.title || "破案啦！"
+      : opts.replayTitle || "又做对一次！";
+    $("done-conclusion").innerHTML = mdToHtml(lv.conclusion || "");
+
+    const w = L.WORLDS.find((x) => x.id === lv.world);
+    const { done, total } = L.worldProgress(lv.world, save.solved);
+    const allDone = L.LEVELS.filter((l) => save.solved[l.id]).length;
+    let xp = `📁 ${w.name}：${done} / ${total} 关`;
+    if (done === total) xp += "　🎊 这个档案全部破完！";
+    xp += `　　🏅 全站进度 ${allDone} / ${L.LEVELS.length}`;
+    $("done-xp").textContent = xp;
+
+    const next = L.LEVELS[L.LEVELS.indexOf(lv) + 1];
+    $("btn-next").hidden = !next;
+    $("btn-next").textContent = next
+      ? next.world === lv.world
+        ? "下一关 ▶"
+        : "进入下一个档案 ▶"
+      : "全部完成";
+
+    showScreen("screen-done");
+  }
+
+  function onSolved() {
+    showDone(session.level, {});
+  }
+
+  function confetti() {
+    const box = $("confetti");
+    box.hidden = false;
+    box.innerHTML = "";
+    const emojis = ["🎉", "⭐", "✨", "🎊", "🏅", "💫"];
+    for (let i = 0; i < 34; i++) {
+      const s = document.createElement("span");
+      s.textContent = emojis[i % emojis.length];
+      s.style.left = Math.random() * 100 + "%";
+      s.style.animationDuration = 1.8 + Math.random() * 1.6 + "s";
+      s.style.animationDelay = Math.random() * 0.5 + "s";
+      box.appendChild(s);
+    }
+    setTimeout(() => {
+      box.hidden = true;
+      box.innerHTML = "";
+    }, 4200);
+  }
+
+  // ------------------------------------------------------------ 选择题
+
+  let quiz = null;
+
+  function startQuiz(level) {
+    quiz = {
+      level,
+      found: new Set(),
+      wrong: new Set(),
+      answers: level.options.map((o) => o.correct),
+    };
+    session = null;
+    teachLevel = null;
+    $("proof-view").hidden = true;
+    $("quiz-view").hidden = false;
+    $("teach-view").hidden = true;
+    $("quiz-title").textContent = level.title;
+    const qBrief = (level.intro || "").trim();
+    $("quiz-brief").hidden = !qBrief;
+    if (qBrief) {
+      $("quiz-brief-body").innerHTML = mdToHtml(qBrief);
+      $("quiz-brief").open = true;
+    }
+
+    const need = level.options.filter((o) => o.correct).length;
+    $("quiz-question").innerHTML =
+      mdToHtml(level.question) +
+      (need > 1
+        ? `<p style="font-size:15px;color:var(--warn);font-weight:700">这一题有 ${need} 个正确答案，要全都找出来哦！</p>`
+        : "");
+    renderQuiz();
+  }
+
+  function renderQuiz() {
+    const level = quiz.level;
+    const need = level.options.filter((o) => o.correct).length;
+    const box = $("quiz-options");
+    box.innerHTML = "";
+    level.options.forEach((opt, i) => {
+      const btn = document.createElement("button");
+      const isFound = quiz.found.has(i);
+      const isWrong = quiz.wrong.has(i);
+      btn.className =
+        "quiz-option" +
+        (isFound ? " correct" : "") +
+        (isWrong ? " wrong" : "") +
+        (!isFound && !isWrong && (quiz.found.size || quiz.wrong.size) ? " dimmed" : "");
+      btn.disabled = isFound || isWrong;
+      btn.innerHTML = `<span class="opt-mark">${String.fromCharCode(
+        65 + i
+      )}</span><span>${inlineMd(opt.text)}</span>`;
+      btn.onclick = () => onQuizAnswer(i);
+      box.appendChild(btn);
+    });
+
+    // 已经找到的答案解释
+    const texts = [];
+    quiz.found.forEach((i) =>
+      texts.push("✅ **" + level.options[i].text + "** —— " + level.options[i].why)
+    );
+    quiz.wrong.forEach((i) =>
+      texts.push("❌ **" + level.options[i].text + "** —— " + level.options[i].why)
+    );
+    const fb = $("quiz-feedback");
+    if (texts.length) {
+      fb.hidden = false;
+      fb.className = "feedback info";
+      fb.innerHTML = texts.map((t) => mdToHtml(t)).join("");
+    } else {
+      fb.hidden = true;
+    }
+
+    if (quiz.found.size >= need) {
+      setTimeout(() => onQuizSolved(), 900);
+    }
+  }
+
+  function onQuizAnswer(i) {
+    const opt = quiz.level.options[i];
+    if (opt.correct) {
+      quiz.found.add(i);
+      sfxStep();
+    } else {
+      quiz.wrong.add(i);
+      sfxOops();
+    }
+    renderQuiz();
+  }
+
+  function onQuizSolved() {
+    showDone(quiz.level, {
+      emoji: "🌟",
+      title: "答对啦！",
+      replayTitle: "又答对一次！",
+    });
+  }
+
+  // ============================================================ 设置
+
+  function openSettings() {
+    $("opt-hints-highlight").checked = !!save.settings.highlight;
+    $("opt-sound").checked = !!save.settings.sound;
+    $("opt-show-formula").checked = !!save.settings.legend;
+    $("settings-modal").hidden = false;
+  }
+  function closeSettings() {
+    save.settings.highlight = $("opt-hints-highlight").checked;
+    save.settings.sound = $("opt-sound").checked;
+    save.settings.legend = $("opt-show-formula").checked;
+    persist();
+    $("settings-modal").hidden = true;
+    updateSoundIcon();
+    if (currentScreen === "screen-level" && session) renderProof();
+  }
+  function updateSoundIcon() {
+    $("btn-sound").textContent = save.settings.sound ? "🔊" : "🔇";
+  }
+
+  // ============================================================ 武器库
+  //
+  // 参考 lean4game 的 Inventory：把已经学会的工具集中放在一个地方，随时能翻。
+  // 对孩子有两层用处：
+  //   ① 忘了某张卡是干什么的，不用回去翻案情简介；
+  //   ② 看见还锁着的东西，会想着「再破几关就能拿到」—— 这是收集的动力。
+
+  let invTab = "cards";
+
+  function openInventory(tab) {
+    if (tab) invTab = tab;
+    renderInventory();
+    $("inventory").hidden = false;
+  }
+
+  function renderInventory() {
+    [...document.querySelectorAll(".inv-tab")].forEach((b) =>
+      b.classList.toggle("active", b.dataset.tab === invTab)
+    );
+
+    const body = $("inv-body");
+    body.innerHTML = "";
+
+    /** 造一张方法卡条目 */
+    function cardItem(t) {
+      // 「已解锁」＝介绍弹层弹过（seenCards），或者孩子已经推进到介绍它的那个档案
+      const introLv = L.cardIntroLevel(t.id);
+      const unlocked =
+        !!save.seenCards[t.id] ||
+        (!!introLv && L.isWorldUnlocked(introLv.world, save.solved));
+      const guide = L.CARD_GUIDE[t.id] || {};
+      const el = document.createElement("div");
+      el.className = "inv-item" + (unlocked ? "" : " locked");
+      el.dataset.card = t.id;
+      el.style.setProperty("--tone", TONES[t.card.tone] || "#5b6ef5");
+      const head =
+        `<div class="iv-head"><span style="font-size:20px">${t.card.emoji}</span>` +
+        `<span>${unlocked ? esc(t.card.name) : "？？？"}</span></div>`;
+      if (unlocked) {
+        el.innerHTML =
+          head +
+          `<div class="iv-tip">${inlineMd(t.card.tip)}</div>` +
+          (guide.when
+            ? `<div class="iv-when">💡 <b>什么时候用：</b>${inlineMd(guide.when)}</div>`
+            : "") +
+          (guide.example ? `<div class="iv-ex">🔎 ${inlineMd(guide.example)}</div>` : "");
+      } else {
+        const w = introLv ? L.WORLDS[L.WORLD_INDEX[introLv.world]] : null;
+        el.innerHTML =
+          head + `<div class="iv-lock">🔒 在「${esc(w ? w.name : "后面的档案")}」拿到</div>`;
+      }
+      return el;
+    }
+
+    if (invTab === "cards") {
+      // 按用途分组显示，而不是铺成一长条
+      const byId = {};
+      L.TACTICS.forEach((t) => (byId[t.id] = t));
+      const placed = new Set();
+      const groups = (L.CARD_GROUPS || []).map((g) => ({
+        name: g.name,
+        cards: g.ids.map((id) => byId[id]).filter(Boolean),
+      }));
+      groups.forEach((g) => g.cards.forEach((t) => placed.add(t.id)));
+      const rest = L.TACTICS.filter((t) => !placed.has(t.id));
+      if (rest.length) groups.push({ name: "🃏 其他", cards: rest });
+
+      groups.forEach((g) => {
+        if (!g.cards.length) return;
+        const title = document.createElement("div");
+        title.className = "inv-group-title";
+        title.textContent = g.name;
+        body.appendChild(title);
+        const grid = document.createElement("div");
+        grid.className = "inv-group";
+        g.cards.forEach((t) => grid.appendChild(cardItem(t)));
+        body.appendChild(grid);
+      });
+    } else {
+      L.SYMBOLS.forEach((s) => {
+        // 和卡片一样：绑定到「介绍它那一页」，不是另写的字段
+        const introLv = L.symbolIntroLevel(s.sym);
+        const unlocked =
+          !!introLv && L.isWorldUnlocked(introLv.world, save.solved);
+        const el = document.createElement("div");
+        el.className = "inv-item" + (unlocked ? "" : " locked");
+        el.dataset.symbol = s.sym;
+        el.style.setProperty("--tone", TONES[s.tone] || "#5b6ef5");
+        if (unlocked) {
+          el.innerHTML =
+            `<div class="iv-sym op-${s.tone}">${s.sym}</div>` +
+            `<div class="iv-head" style="justify-content:center"><span>${esc(s.name)}</span></div>` +
+            `<div class="iv-tip" style="text-align:center">${inlineMd(s.read)}</div>` +
+            `<div class="iv-when">📖 <b>意思：</b>${inlineMd(s.meaning)}</div>` +
+            `<div class="iv-ex">🔎 ${inlineMd(s.example)}</div>`;
+        } else {
+          const w = introLv ? L.WORLDS[L.WORLD_INDEX[introLv.world]] : null;
+          el.innerHTML =
+            `<div class="iv-sym">？</div>` +
+            `<div class="iv-lock" style="text-align:center">🔒 在「${esc(
+              w ? w.name : "后面的档案"
+            )}」认识它</div>`;
+        }
+        body.appendChild(el);
+      });
+    }
+  }
+
+  // ============================================================ 事件绑定
+
+  function back() {
+    if (currentScreen === "screen-level") {
+      if (currentWorldId) openWorld(currentWorldId);
+      else showScreen("screen-home");
+    } else if (currentScreen === "screen-world" || currentScreen === "screen-lessons") {
+      renderHome();
+      showScreen("screen-home");
+    } else if (currentScreen === "screen-done") {
+      if (currentWorldId) openWorld(currentWorldId);
+      else {
+        renderHome();
+        showScreen("screen-home");
+      }
+    }
+  }
+
+  function bind() {
+    $("btn-back").onclick = back;
+    $("btn-sound").onclick = () => {
+      save.settings.sound = !save.settings.sound;
+      persist();
+      updateSoundIcon();
+      if (save.settings.sound) sfxClick();
+    };
+    $("btn-settings").onclick = openSettings;
+    $("btn-close-settings").onclick = closeSettings;
+    $("settings-modal").onclick = (e) => {
+      if (e.target.id === "settings-modal") closeSettings();
+    };
+    $("btn-clear-progress").onclick = () => {
+      if (!window.confirm("确定要清空全部进度吗？这个操作不能撤销。")) return;
+      save = defaultSave();
+      persist();
+      updateSoundIcon();
+      $("settings-modal").hidden = true;
+      renderHome();
+      showScreen("screen-home");
+    };
+
+    $("btn-continue").onclick = () => {
+      const n = nextPlayable();
+      if (n) openLevel(n.id);
+    };
+    $("btn-lessons").onclick = () => {
+      sfxClick();
+      renderLessons();
+      showScreen("screen-lessons");
+    };
+
+    $("btn-undo").onclick = undo;
+    $("btn-hint").onclick = showHint;
+    $("btn-reset").onclick = resetLevel;
+    $("btn-cancel-pick").onclick = cancelPick;
+    $("btn-quiz-reset").onclick = () => startQuiz(quiz.level);
+
+    $("btn-next").onclick = () => {
+      const lv = currentLevel;
+      if (!lv) return;
+      const next = L.LEVELS[L.LEVELS.indexOf(lv) + 1];
+      if (next) openLevel(next.id);
+    };
+    $("btn-done-back").onclick = () => {
+      const lv = currentLevel;
+      if (!lv) return;
+      currentWorldId = lv.world;
+      openWorld(lv.world);
+    };
+
+    // ---- 介绍关 ----
+    $("btn-teach-done").onclick = () => {
+      if (!teachLevel) return;
+      showDone(teachLevel, {
+        emoji: teachLevel.emoji || "📖",
+        title: "又认识一个新符号！",
+        replayTitle: "再看一遍也挺好",
+      });
+    };
+
+    // ---- 武器库 ----
+    $("btn-inventory").onclick = () => {
+      sfxClick();
+      openInventory();
+    };
+    $("btn-close-inventory").onclick = () => {
+      $("inventory").hidden = true;
+    };
+    $("inventory").onclick = (e) => {
+      if (e.target.id === "inventory") $("inventory").hidden = true;
+    };
+    [...document.querySelectorAll(".inv-tab")].forEach((b) => {
+      b.onclick = () => {
+        invTab = b.dataset.tab;
+        sfxClick();
+        renderInventory();
+      };
+    });
+
+    // 键盘快捷键（给大一点的孩子）
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (!$("settings-modal").hidden) closeSettings();
+      else if (!$("inventory").hidden) $("inventory").hidden = true;
+      else if (session && session.pick) cancelPick();
+      else back();
+    });
+  }
+
+  // ============================================================ 启动
+
+  function boot() {
+    bind();
+    updateSoundIcon();
+    renderHome();
+    showScreen("screen-home");
+    console.log(
+      `%c🔍 逻辑小侦探 已就绪`,
+      "color:#5b6ef5;font-weight:bold;font-size:14px",
+      `\n${L.WORLDS.length} 个世界 / ${L.LEVELS.length} 关 / ${L.TACTICS.length} 张方法卡` +
+        `\n证明内核：自然演绎，共 ${L.TACTICS.length} 条推理规则`
+    );
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
+})();
