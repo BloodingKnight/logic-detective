@@ -187,6 +187,8 @@
       // 间隔重复的排期：{ 关卡id: { box: 第几轮, due: 下次该复习的时间戳 } }
       // 单独存一份而不是塞进 solved，是为了让老存档还能用（solved 里以前是 true）。
       review: {},
+      // 小结页里孩子自己写的话（"用自己的话说一遍"）。不判对错，存下来给家长看。
+      notes: {},
       // 已经介绍过的方法卡。用来决定「新道具介绍」要不要弹，
       // 也决定武器库里哪些是亮的、哪些还锁着。
       seenCards: {},
@@ -203,6 +205,7 @@
       return {
         solved: parsed.solved || {},
         review: parsed.review || {},
+        notes: parsed.notes || {},
         seenCards: parsed.seenCards || {},
         settings: Object.assign(d.settings, parsed.settings || {}),
       };
@@ -402,24 +405,28 @@
       <div class="markdown">${mdToHtml(w.intro)}</div>`;
 
     $("level-list").innerHTML = "";
+    // 关卡类型 → 图标 / 小标签。一目了然地知道「这一关是干什么的」。
+    const KIND = {
+      teach: { icon: null, label: "先认识一下" },
+      quiz: { icon: null, label: "选择题" },
+      proof: { icon: null, label: "推理题" },
+      summary: { icon: "🎓", label: "本课小结" },
+      create: { icon: "🎨", label: "自己出题" },
+    };
+
     levels.forEach((lv, i) => {
       const unlocked = L.isUnlocked(lv, save.solved);
       const done = !!save.solved[lv.id];
+      const kind = KIND[lv.type] || KIND.proof;
       const item = document.createElement("button");
       item.className =
         "level-item" + (done ? " done" : "") + (unlocked ? "" : " locked");
       item.innerHTML = `
         <div class="level-num">${
-          done ? "✓" : lv.type === "teach" ? lv.emoji || "📖" : i + 1
+          done ? "✓" : kind.icon || (lv.type === "teach" ? lv.emoji || "📖" : i + 1)
         }</div>
         <div class="level-title">${esc(lv.title)}
-          <div class="level-kind">${
-            lv.type === "teach"
-              ? "先认识一下"
-              : lv.type === "quiz"
-              ? "选择题"
-              : "推理题"
-          }</div>
+          <div class="level-kind">${kind.label}</div>
         </div>
         <div class="level-status">${done ? "⭐" : unlocked ? "▶" : "🔒"}</div>`;
       item.onclick = () => {
@@ -463,6 +470,8 @@
     currentLevel = level;
     if (level.type === "teach") startTeach(level);
     else if (level.type === "quiz") startQuiz(level);
+    else if (level.type === "summary") startSummary(level);
+    else if (level.type === "create") startCreate(level);
     else startProof(level);
     showScreen("screen-level");
   }
@@ -488,10 +497,209 @@
     $("teach-view").hidden = false;
     $("proof-view").hidden = true;
     $("quiz-view").hidden = true;
+    $("summary-view").hidden = true;
+    $("create-view").hidden = true;
     $("teach-symbol").textContent = level.symbol || level.emoji || "📖";
     $("teach-title").textContent = level.title;
     $("teach-body").innerHTML = mdToHtml(level.body);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  // ------------------------------------------------------------ 小结关
+  //
+  // 一课的最后一步：把这一课的知识点串一遍，确认「毕业标准」，
+  // 再让孩子**用自己的话写一遍**。不判对错 —— 判不了，也不该判。
+  // 用途有两个：写的过程就是复述（费曼技巧），写下来的东西家长能看。
+
+  let summaryLevel = null;
+
+  function startSummary(level) {
+    session = null;
+    quiz = null;
+    teachLevel = null;
+    summaryLevel = level;
+    $("teach-view").hidden = true;
+    $("proof-view").hidden = true;
+    $("quiz-view").hidden = true;
+    $("create-view").hidden = true;
+    $("summary-view").hidden = false;
+
+    $("summary-emoji").textContent = level.emoji || "🎓";
+    $("summary-title").textContent = level.title;
+
+    const recap = (level.intro ? level.intro + "\n\n" : "")
+      + (level.points || []).map((p) => "· " + p).join("\n");
+    $("summary-recap").innerHTML = mdToHtml(recap);
+    $("summary-graduation").innerHTML = mdToHtml(level.graduation || "");
+    $("summary-ask-label").textContent =
+      "✍️ " + (level.askKid || "用你自己的话说说，这一课学了什么？");
+    $("summary-note").value = save.notes[level.id] || "";
+    $("btn-summary-done").textContent = level.button || "写好了，收工 ▶";
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  // ------------------------------------------------------------ 自己出题关
+  //
+  // 这一关反过来：孩子当出题人。
+  // 引擎负责判三件事 —— 线索自洽吗、结论真能推出来吗、会不会太简单。
+  // 「出一道成立的题」比「做一道题」难得多，也是真正检验懂没懂的关卡。
+
+  let createLevel = null;
+  const createPick = { givens: new Set(), goal: null };
+
+  function startCreate(level) {
+    session = null;
+    quiz = null;
+    teachLevel = null;
+    summaryLevel = null;
+    createLevel = level;
+    createPick.givens = new Set();
+    createPick.goal = null;
+
+    $("teach-view").hidden = true;
+    $("proof-view").hidden = true;
+    $("quiz-view").hidden = true;
+    $("summary-view").hidden = true;
+    $("create-view").hidden = false;
+
+    $("create-title").textContent = level.title;
+    $("create-brief-body").innerHTML = mdToHtml(level.intro || "");
+    $("create-feedback").hidden = true;
+    $("create-play").hidden = true;
+
+    // ① 线索菜单
+    const pool = $("create-pool");
+    pool.innerHTML = "";
+    level.poolF.forEach((f, i) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "create-chip";
+      btn.dataset.pool = String(i);
+      btn.innerHTML = fshow(f);
+      btn.onclick = () => {
+        if (createPick.givens.has(i)) createPick.givens.delete(i);
+        else createPick.givens.add(i);
+        btn.classList.toggle("on");
+        sfxClick();
+      };
+      pool.appendChild(btn);
+    });
+
+    // ② 结论菜单
+    const goals = $("create-goals");
+    goals.innerHTML = "";
+    level.goalsF.forEach((f, i) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "create-chip goal";
+      btn.dataset.goal = String(i);
+      btn.innerHTML = fshow(f);
+      btn.onclick = () => {
+        createPick.goal = i;
+        [...goals.children].forEach((c) => c.classList.remove("on"));
+        btn.classList.add("on");
+        sfxClick();
+      };
+      goals.appendChild(btn);
+    });
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  /** 检查孩子出的题成不成立。三种「不成立」都要给出具体的理由。 */
+  function checkCreate() {
+    const level = createLevel;
+    if (!level) return;
+    const box = $("create-feedback");
+    const show = (msg) => {
+      box.hidden = false;
+      box.className = "feedback bad";
+      box.innerHTML = mdToHtml(msg);
+    };
+
+    if (!createPick.givens.size)
+      return show("先选至少一条**线索**——没有线索的话，题目就没有难度了。");
+    if (createPick.goal === null)
+      return show("还没选**要证明的结论**呢。");
+
+    const givens = [...createPick.givens].map((i) => level.poolF[i]);
+    const goal = level.goalsF[createPick.goal];
+
+    // ① 线索不能自相矛盾 —— 矛盾线索下什么都能"证明"，那是一道假题
+    if (!L.isSatisfiable(givens))
+      return show(
+        "这几条线索**互相打架**，不可能同时成立。\n\n自相矛盾的线索能「推出」任何结论，\n所以那不是一道好题。换一条试试？"
+      );
+
+    // ② 结论不能空手就成立
+    if (L.isTautology(goal))
+      return show(
+        "这个结论**不用任何线索**就成立，太简单了 😄\n\n好题的结论要靠线索才推得出来。"
+      );
+
+    // ③ 结论不能就是某条线索本身 —— 那等于"因为下雨，所以下雨"
+    if (givens.some((g) => L.key(g) === L.key(goal)))
+      return show(
+        "这个结论**就是你选的一条线索**😄\n\n「因为它，所以它」不是一道题。\n结论要从线索**推出来**，而不是直接抄一条。"
+      );
+
+    // ③ 结论必须真能推出来
+    L.resetIds();
+    const sol = L.solve(L.initialState(givens, goal, []), {
+      maxDepth: 12,
+      maxNodes: 60000,
+      only: L.tacticsForLevel(level.id),
+    });
+    if (!sol)
+      return show(
+        "这个结论**推不出来** 😕\n\n线索不够，或者你选的结论和线索说的是两回事。\n再想想：这些线索合起来能保证什么？"
+      );
+
+    // 成立！
+    box.hidden = false;
+    box.className = "feedback good";
+    box.innerHTML = mdToHtml(
+      "🎉 **成立！** 你出的这道题是一道**真题目** ——\n线索自洽，结论确实能从线索推出来，而且还不是废话。\n\n"
+        + "**题目**：" + givens.map((f) => "`" + L.show(f) + "`").join("、")
+        + "　⊢　`" + L.show(goal) + "`\n\n"
+        + "数学老师出一道好题，就是这个标准。"
+    );
+
+    const play = $("create-play");
+    play.hidden = false;
+    play.innerHTML = "";
+    const btn = document.createElement("button");
+    btn.className = "big-primary";
+    btn.textContent = "▶ 现在做做看我出的题";
+    btn.onclick = () => {
+      const custom = {
+        id: "custom-" + Date.now(),
+        world: level.world,
+        type: "proof",
+        title: "我出的题",
+        givensF: givens,
+        rulesF: [],
+        goalF: goal,
+        hints: [],
+        conclusion: "这道题是**你自己出的**，而且它成立。🎨\n\n能出题，说明你真的懂了。",
+        isCustom: true,
+      };
+      createLevel = null;
+      currentLevel = custom;
+      startProof(custom);
+      showScreen("screen-level");
+    };
+    play.appendChild(btn);
+
+    const fin = document.createElement("button");
+    fin.className = "ghost";
+    fin.textContent = "✓ 我满意这一题，收工";
+    fin.onclick = () => {
+      const lv = createLevel;
+      createLevel = null;
+      showDone(lv, { emoji: "🎨", title: "你出题成功了！" });
+    };
+    play.appendChild(fin);
   }
 
   // ------------------------------------------------------------ 新道具介绍
@@ -555,6 +763,8 @@
     $("proof-view").hidden = false;
     $("quiz-view").hidden = true;
     $("teach-view").hidden = true;
+    $("summary-view").hidden = true;
+    $("create-view").hidden = true;
     $("proof-title").textContent = level.title;
     // 有些关（比如入门选择题）没有案情简介，这时整个折叠块藏起来，
     // 免得孩子点开一个空盒子。
@@ -932,13 +1142,16 @@
     const wasReview = reviewQueue[0] === lv.id;
     // solved 里以前存的是 true，现在改存完成时间戳。
     // 所有地方都是按「真假」用的，所以老存档照样能用。
-    if (firstTime) save.solved[lv.id] = Date.now();
-    if (wasReview) {
-      // 自己想起了 → 升一格（下次更远再见）；靠提示做的 → 退回第一格，明天再来
-      bumpReview(lv.id, !reviewUsedHint);
-      reviewQueue.shift();
-    } else if (firstTime) {
-      scheduleReview(lv.id, 1); // 第一次学会 → 明天该复习
+    // 自己出的题是临时的，不进存档、也不排复习。
+    if (!lv.isCustom) {
+      if (firstTime) save.solved[lv.id] = Date.now();
+      if (wasReview) {
+        // 自己想起了 → 升一格（下次更远再见）；靠提示做的 → 退回第一格，明天再来
+        bumpReview(lv.id, !reviewUsedHint);
+        reviewQueue.shift();
+      } else if (firstTime) {
+        scheduleReview(lv.id, 1); // 第一次学会 → 明天该复习
+      }
     }
     persist();
     sfxWin();
@@ -960,7 +1173,7 @@
     xp += `　　🏅 全站进度 ${allDone} / ${L.LEVELS.length}`;
     $("done-xp").textContent = xp;
 
-    const next = L.LEVELS[L.LEVELS.indexOf(lv) + 1];
+    const next = lv.isCustom ? null : L.LEVELS[L.LEVELS.indexOf(lv) + 1];
     if (reviewQueue.length) {
       // 复习模式：下一步是继续复习，而不是往下学新关
       $("btn-next").hidden = false;
@@ -1016,6 +1229,8 @@
     $("proof-view").hidden = true;
     $("quiz-view").hidden = false;
     $("teach-view").hidden = true;
+    $("summary-view").hidden = true;
+    $("create-view").hidden = true;
     $("quiz-title").textContent = level.title;
     const qBrief = (level.intro || "").trim();
     $("quiz-brief").hidden = !qBrief;
@@ -1294,6 +1509,25 @@
     $("btn-reset").onclick = resetLevel;
     $("btn-cancel-pick").onclick = cancelPick;
     $("btn-quiz-reset").onclick = () => startQuiz(quiz.level);
+    $("btn-create-check").onclick = () => {
+      sfxClick();
+      checkCreate();
+    };
+    $("btn-create-reset").onclick = () => {
+      if (createLevel) startCreate(createLevel);
+    };
+    $("btn-summary-done").onclick = () => {
+      if (!summaryLevel) return;
+      // 孩子写的话存下来（不判对错）—— 写的过程本身就是复述
+      const text = $("summary-note").value.trim();
+      if (text) save.notes[summaryLevel.id] = text;
+      else delete save.notes[summaryLevel.id];
+      persist();
+      showDone(summaryLevel, {
+        emoji: summaryLevel.emoji || "🎓",
+        title: "这一课收工啦！",
+      });
+    };
 
     $("btn-next").onclick = () => {
       // 复习模式：先把队列走完，再回去学新关
@@ -1303,7 +1537,7 @@
       }
       const lv = currentLevel;
       if (!lv) return;
-      const next = L.LEVELS[L.LEVELS.indexOf(lv) + 1];
+      const next = lv.isCustom ? null : L.LEVELS[L.LEVELS.indexOf(lv) + 1];
       if (next) openLevel(next.id);
     };
     $("btn-done-back").onclick = () => {

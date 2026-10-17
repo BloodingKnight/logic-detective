@@ -134,9 +134,57 @@
         <div id="quiz-feedback" class="feedback" hidden></div>
       </div>
 
-    </section>
+      <!-- ---- 小结：一课的收尾 ---- -->
+      <div id="summary-view" hidden>
+        <div class="teach-card">
+          <div class="teach-symbol" id="summary-emoji">🎓</div>
+          <h2 id="summary-title"></h2>
+          <div id="summary-recap" class="markdown"></div>
+          <div class="sum-graduation">
+            <b>🎓 毕业标准</b>
+            <div id="summary-graduation" class="markdown"></div>
+          </div>
+          <div class="sum-ask">
+            <b id="summary-ask-label"></b>
+            <textarea id="summary-note" rows="4" placeholder="写在这里…（说给爸爸妈妈听也行）"></textarea>
+            <div class="sum-hint">不用写得好，能把你自己说明白就够了。这段话会保存下来。</div>
+          </div>
+          <button id="btn-summary-done" class="big-primary">写好了，收工 ▶</button>
+        </div>
+      </div>
 
-    <!-- ======================= 通关 ======================= -->
+      <!-- ---- 自己出题 ---- -->
+      <div id="create-view" hidden>
+        <div class="level-head">
+          <h2 id="create-title"></h2>
+          <div class="level-tools">
+            <button id="btn-create-reset" class="tool">🔄 重来</button>
+          </div>
+        </div>
+        <details id="create-brief" class="case-brief" open>
+          <summary>📁 这一关怎么玩</summary>
+          <div id="create-brief-body" class="markdown"></div>
+        </details>
+
+        <div class="create-section">
+          <div class="pane-title">① 选线索（挑 1~4 条）</div>
+          <div id="create-pool" class="create-pool"></div>
+        </div>
+
+        <div class="create-section">
+          <div class="pane-title">② 选一个要证明的结论</div>
+          <div id="create-goals" class="create-goals"></div>
+        </div>
+
+        <div class="create-actions">
+          <button id="btn-create-check" class="big-primary">🔍 看看我的题成立吗</button>
+        </div>
+
+        <div id="create-feedback" class="feedback" hidden></div>
+        <div id="create-play" class="create-play" hidden></div>
+      </div>
+
+    </section>
     <section id="screen-done" class="screen" hidden>
       <div class="done-card">
         <div class="done-emoji" id="done-emoji">🎉</div>

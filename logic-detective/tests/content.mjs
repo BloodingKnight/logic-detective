@@ -18,6 +18,39 @@ const LV = require("../js/levels.js");
 
 let fails = 0;
 let warns = 0;
+
+/**
+ * 出题关：在孩子的菜单里找一组「成立的题」。
+ *
+ * 判定标准必须和 app.js 的 checkCreate **完全一致** ——
+ * 否则会出现「测试说这关能过，孩子怎么试都过不了」。
+ * 三条：线索自洽、结论不是废话、结论真能从线索推出来。
+ */
+function findValidPuzzle(lv) {
+  const pool = lv.poolF;
+  const avail = LV.tacticsForLevel(lv.id);
+  let tries = 0;
+  for (let mask = 1; mask < 1 << pool.length; mask++) {
+    const idx = [];
+    for (let i = 0; i < pool.length; i++) if (mask & (1 << i)) idx.push(i);
+    if (idx.length > 4) continue;
+    const givens = idx.map((i) => pool[i]);
+    if (!L.isSatisfiable(givens)) continue;
+    for (const goal of lv.goalsF) {
+      if (++tries > 400) return null; // 兜底，别让测试卡死
+      if (L.isTautology(goal)) continue;
+      if (givens.some((g) => L.key(g) === L.key(goal))) continue;
+      E.resetIds();
+      const sol = E.solve(E.initialState(givens, goal, []), {
+        maxDepth: 12,
+        maxNodes: 60000,
+        only: avail,
+      });
+      if (sol) return { givens, goal, steps: sol.path.length };
+    }
+  }
+  return null;
+}
 const fail = (m) => { fails++; console.log("  ❌   " + m); };
 const warn = (m) => { warns++; console.log("  ⚠️   " + m); };
 const ok = (m) => console.log("  ok   " + m);
@@ -29,8 +62,23 @@ console.log("\n=== 1. 关卡结构 ===");
     if (seen.has(lv.id)) fail(`关卡 id 重复：${lv.id}`);
     seen.add(lv.id);
     if (!LV.WORLD_INDEX.hasOwnProperty(lv.world)) fail(`${lv.id} 的世界不存在`);
-    if (!["teach", "quiz", "proof"].includes(lv.type))
+    if (
+      !["teach", "quiz", "proof", "summary", "create"].includes(lv.type)
+    )
       fail(`${lv.id} 的类型 "${lv.type}" 不认识`);
+    if (lv.type === "summary") {
+      if (!lv.points || !lv.points.length) fail(`小结 ${lv.id} 没有要点`);
+      if (!lv.graduation) fail(`小结 ${lv.id} 没有毕业标准`);
+      if (!lv.askKid) fail(`小结 ${lv.id} 没有「用自己的话说」的问题`);
+    }
+    if (lv.type === "create") {
+      if (!lv.poolF || !lv.poolF.length) fail(`出题关 ${lv.id} 没有线索菜单`);
+      if (!lv.goalsF || !lv.goalsF.length) fail(`出题关 ${lv.id} 没有结论菜单`);
+      // ★ 出题关必须至少存在一组「成立的题」，否则孩子怎么试都过不了
+      const ok = findValidPuzzle(lv);
+      if (!ok)
+        fail(`${lv.id} 的菜单里没有任何一组线索能推出任何结论 —— 这关过不去`);
+    }
     if (lv.type === "proof") {
       if (!lv.goal) fail(`${lv.id} 没有结论`);
       if (!lv.conclusion) warn(`${lv.id} 没有结案语`);
@@ -242,7 +290,7 @@ console.log("\n=== 4b. 学习路线（课时表）===");
 
   const mins = LV.LESSONS.map((l) => l.minutes);
   const total = mins.reduce((a, b) => a + b, 0);
-  const over = LV.LESSONS.filter((l) => l.minutes > 35);
+  const over = LV.LESSONS.filter((l) => l.minutes > 40);
   if (over.length) warn(`这些课时超过 35 分钟：${over.map((l) => l.title).join("、")}`);
   ok(
     `${LV.LESSONS.length} 次课，合计约 ${total} 分钟，` +

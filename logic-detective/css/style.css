@@ -937,6 +937,84 @@ button { font-family: inherit; cursor: pointer; }
 }
 .inv-empty { color: var(--ink-faint); font-size: 14px; }
 
+/* ------------------------------------------------------------ 小结关 */
+
+.sum-graduation {
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 13px;
+  padding: 14px 18px;
+  margin: 18px 0;
+}
+.sum-graduation b { color: var(--accent); font-size: 15px; }
+.sum-graduation > div { margin-top: 6px; }
+
+.sum-ask { margin: 18px 0 6px; }
+.sum-ask b { display: block; margin-bottom: 8px; font-size: 15px; }
+.sum-ask textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.7;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: #fcfdff;
+  resize: vertical;
+}
+.sum-ask textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(91, 110, 245, 0.12);
+}
+.sum-hint { font-size: 13px; color: var(--ink-faint); margin-top: 7px; }
+
+/* ------------------------------------------------------------ 自己出题 */
+
+.create-section { margin: 18px 0; }
+.create-pool,
+.create-goals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 9px;
+}
+
+.create-chip {
+  font: inherit;
+  font-size: 15px;
+  padding: 9px 15px;
+  border-radius: 11px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  cursor: pointer;
+  transition: all .12s;
+  line-height: 1.4;
+}
+.create-chip:hover { border-color: var(--accent); }
+.create-chip.on {
+  border-color: var(--accent);
+  background: #eef2ff;
+  box-shadow: 0 0 0 3px rgba(91, 110, 245, 0.12);
+}
+.create-chip.goal.on {
+  border-color: #16a34a;
+  background: #f0fdf4;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.12);
+}
+
+.create-actions { margin: 22px 0 14px; }
+.create-actions .big-primary { width: 100%; }
+
+.create-play {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.create-play button { flex: 1; min-width: 190px; }
+
 /* ------------------------------------------------------------ 学习路线 */
 
 .big-ghost {

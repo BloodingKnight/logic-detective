@@ -193,6 +193,8 @@ const SHOTS = [
   { name: "18-peano", q: "level=numbers-l5&steps=2" },
   { name: "20-induction", q: "level=python-l4&pick=归纳法" },
   { name: "21-paradox", q: "level=knights-l3" },
+  { name: "22-summary", q: "level=intro-sum" },
+  { name: "23-create", q: "level=chain-create" },
   { name: "14-teach-symbol", q: "level=intro-t4" },
   { name: "15-card-intro", q: "level=either-l3&intro=show" },
   { name: "16-inventory", q: "inv=1&solve=both-l5" },

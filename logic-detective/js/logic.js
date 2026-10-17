@@ -398,9 +398,11 @@
         i++;
         continue;
       }
-      // ⊥（矛盾/不可能）也要能写进关卡源码里，否则没法出「证明这个设定不成立」的题。
-      if (c === "⊥") {
-        out.push({ t: "false" });
+      // 界面上显示的就是 ∧ ∨ ¬ → ⊥，关卡作者自然会照着写。
+      // 解析器必须能原样读回来，否则每写一关都要记一遍 ASCII 对照表。
+      const GLYPH = { "∧": "&", "∨": "|", "¬": "~", "→": "->", "⊥": "false" };
+      if (GLYPH[c]) {
+        out.push({ t: GLYPH[c] });
         i++;
         continue;
       }
@@ -602,6 +604,26 @@
    * 是不是「永远成立」（重言式）。用真值表穷举，适合我们这种小公式。
    * 含等式的公式不能用真值表 —— 请改用 engine.js 里的归一化判据。
    */
+  /**
+   * 一组公式能不能同时为真。
+   *
+   * 为什么需要它：只检查「线索 ⇒ 结论 是重言式」是不够的 ——
+   * **线索自相矛盾时，任何结论都能被推出来**，重言式检查照样放行。
+   * 那种关其实在教假逻辑。所以「自己出题」这一关要求孩子选的线索必须自洽。
+   */
+  function isSatisfiable(fs) {
+    if (fs.some(hasEquation)) return true; // 等式另作处理，不在这里判断
+    const names = [...new Set(fs.flatMap((f) => [...atomsOf(f)]))];
+    if (names.length > 16) return true; // 原子太多就别硬算了
+    const total = 1 << names.length;
+    for (let mask = 0; mask < total; mask++) {
+      const env = {};
+      for (let i = 0; i < names.length; i++) env[names[i]] = !!(mask & (1 << i));
+      if (fs.every((f) => evaluate(f, env))) return true;
+    }
+    return false;
+  }
+
   function isTautology(f) {
     if (hasEquation(f))
       throw new Error(
@@ -663,6 +685,7 @@
     atomsOf,
     evaluate,
     isTautology,
+    isSatisfiable,
     impAll,
     andAll,
   };

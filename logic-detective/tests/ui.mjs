@@ -32,6 +32,40 @@ const fail = (m) => { fails++; console.log("  ❌   " + m); };
 const ok = (m) => console.log("  ok   " + m);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * 出题关：找一组「成立的题」（返回菜单下标）。
+ *
+ * 判定规则必须和 app.js 的 checkCreate、content.mjs 的 findValidPuzzle 一致。
+ * 别在测试里「全选线索再逐个试结论」—— 全选常常会让线索互相矛盾，
+ * 那说明提示是对的，不是 bug。
+ */
+function findCreateCombo(level) {
+  const pool = level.poolF;
+  const avail = LV.tacticsForLevel(level.id);
+  let tries = 0;
+  for (let mask = 1; mask < 1 << pool.length; mask++) {
+    const idx = [];
+    for (let i = 0; i < pool.length; i++) if (mask & (1 << i)) idx.push(i);
+    if (idx.length > 4) continue;
+    const givens = idx.map((i) => pool[i]);
+    if (!L.isSatisfiable(givens)) continue;
+    for (let gi = 0; gi < level.goalsF.length; gi++) {
+      if (++tries > 400) return null;
+      const goal = level.goalsF[gi];
+      if (L.isTautology(goal)) continue;
+      if (givens.some((g) => L.key(g) === L.key(goal))) continue;
+      E.resetIds();
+      const sol = E.solve(E.initialState(givens, goal, []), {
+        maxDepth: 12,
+        maxNodes: 60000,
+        only: avail,
+      });
+      if (sol) return { givens: idx, goal: gi };
+    }
+  }
+  return null;
+}
+
 // ------------------------------------------------------------ 启动页面
 
 const html = await readFile(join(GAME, "index.html"), "utf8");
@@ -182,6 +216,66 @@ for (const level of LV.LEVELS) {
     await sleep(1100); // 等通关动画的延时
     if ($("screen-done").hidden) {
       fail(`${level.id}（选择题）没走到通关页`);
+      failedLevels.push(level.id);
+    } else solvedCount++;
+    continue;
+  }
+
+  if (level.type === "summary") {
+    const ta = $("summary-note");
+    if (!ta) {
+      fail(`${level.id} 没有「用自己的话说」的输入框`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    if (!$("summary-graduation").textContent.trim()) {
+      fail(`${level.id} 没显示毕业标准`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    ta.value = "我自己的理解（测试）";
+    click($("btn-summary-done"));
+    if ($("screen-done").hidden) {
+      fail(`${level.id}（小结关）没走到完成页`);
+      failedLevels.push(level.id);
+    } else solvedCount++;
+    continue;
+  }
+
+  if (level.type === "create") {
+    const combo = findCreateCombo(level);
+    if (!combo) {
+      fail(`${level.id}（出题关）菜单里没有任何成立的组合 —— 孩子怎么试都过不去`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    const poolChips = [...doc.querySelectorAll("#create-pool .create-chip")];
+    combo.givens.forEach((i) => click(poolChips[i]));
+    const goalChips = [...doc.querySelectorAll("#create-goals .create-chip")];
+    click(goalChips[combo.goal]);
+    click($("btn-create-check"));
+    const fb = $("create-feedback");
+    if (fb.hidden || !fb.classList.contains("good")) {
+      fail(`${level.id}（出题关）按测试算出的成立组合去点，却没判「成立」`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    if ($("create-play").hidden) {
+      fail(`${level.id} 判定成立之后没出现「继续」按钮`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    const fin = [...doc.querySelectorAll("#create-play button")].find((b) =>
+      b.textContent.includes("收工")
+    );
+    if (!fin) {
+      fail(`${level.id} 没有「收工」按钮`);
+      failedLevels.push(level.id);
+      continue;
+    }
+    click(fin);
+    if ($("screen-done").hidden) {
+      fail(`${level.id}（出题关）没走到完成页`);
       failedLevels.push(level.id);
     } else solvedCount++;
     continue;
