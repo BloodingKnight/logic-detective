@@ -13,6 +13,9 @@ package-lock.json
 # 截图是本地视觉验证用的，不进仓库。
 /.shots/
 
+# 部署产物（由 scripts/build-dist.mjs 生成，可随时重建）
+/dist/
+
 # ---------------------------------------------------------------- 系统垃圾
 Thumbs.db
 .DS_Store
